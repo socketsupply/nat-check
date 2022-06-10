@@ -12,6 +12,15 @@ function Peer (addr) {
   }
 }
 
+  function getOrAddPeer(peers, info) {
+    for(var i = 0; i < peers.length; i++)
+      if(peers[i].host == info.host && peers[i].port === info.port)
+        return peers[i]
+    var p = Peer(info)
+    peers.push(p)
+    return p
+  }
+
 function createBase (socket, handlers) {
   var peers = []
   var dht = {
@@ -29,17 +38,8 @@ function createBase (socket, handlers) {
     peers
   }
 
-  function getOrAddPeer(info) {
-    for(var i = 0; i < peers.length; i++)
-      if(peers[i].host == info.host && peers[i].port === info.port)
-        return peers[i]
-    var p = Peer(info)
-    peers.push(p)
-    return p
-  }
-
   socket.on('message', function (buf, rinfo) {
-    var peer = getOrAddPeer(rinfo)
+    var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
 
@@ -149,7 +149,7 @@ function createDHT (socket, seeds, id) {
     [RX_PEERS]: function (dht, buf, peer) {
       var start = 1
       for(var start = 1; start + IPV4Peer.bytes <= buf.length; start += IPV4Peer.bytes) {
-        var p = getOrAddPeer(IPv4.decode(buf, start))
+        var p = getOrAddPeer(dht.peers, IPv4.decode(buf, start))
         if(~p.from.indexOf(peer))
           p.from.push(peer)
        //try to ping new peer, but not if we already pinged them within 30 seconds
