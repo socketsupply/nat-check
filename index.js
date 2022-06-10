@@ -91,7 +91,7 @@ var Ipv4 = {
 
 var Ipv4Peer = {
   encode: function (peer, buffer, start) {
-    IPv6Peer.encode(peer, buffer, start)
+    Ipv4Peer.encode(peer, buffer, start)
     buffer.write(peer.id, start+Ipv4Peer.bytes, 'hex')
     return Ipv4Peer.bytes+32
   },
@@ -166,7 +166,7 @@ function createDHT (socket, seeds, id) {
     [RX_PEERS]: function (dht, buf, peer) {
       var start = 1
       for(var start = 1; start + Ipv4Peer.bytes <= buf.length; start += Ipv4Peer.bytes) {
-        var p = getOrAddPeer(dht.peers, IPv4.decode(buf, start))
+        var p = getOrAddPeer(dht.peers, Ipv4.decode(buf, start))
         if(~p.from.indexOf(peer))
           p.from.push(peer)
        //try to ping new peer, but not if we already pinged them within 30 seconds
