@@ -49,7 +49,7 @@ function createBase (socket, handlers) {
     peer.recv.count ++
     peer.recv.ts = Date.now()
 
-    var type = buf.readUInt16LE(0)
+    var type = buf[0]
     var handler = handlers[type]
     if('function' === typeof handler)
       handler(dht, buf, peer)
@@ -188,6 +188,7 @@ function createDHT (socket, seeds, id) {
 
   //ping active peers every 30 seconds
   //active peers means we have received from them within 2 minutes
+  console.log(Ping)
   interval(() => {
     console.log(dht.peers)
     dht.broadcastMap((peer) => {
