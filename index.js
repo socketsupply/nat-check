@@ -3,6 +3,8 @@
 //use a default port so that local multicast works
 var PORT = 1999
 
+var niceAgo = require('nice-ago')
+
 function Peer (addr) {
   return {
     address: addr.address,
@@ -43,7 +45,7 @@ function createBase (socket, handlers) {
   }
 
   socket.on('message', function (buf, rinfo) {
-    console.error("RECV", buf, rinfo)
+    //console.error("RECV", buf, rinfo)
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
@@ -147,6 +149,7 @@ function createDHT (socket, seeds, id) {
       update()
     }, 
     [TX_PEERS]: function (dht, buf, peer) {
+//      console.error("TX_PEERS", dht.peers)
       var _peers = dht.peers.filter(function (p) {
         //don't send peer back to requesting peer
         if(p === peer) return
@@ -155,8 +158,8 @@ function createDHT (socket, seeds, id) {
           return
         return true
       })
-      if(!_peers.length)
-        console.error('no peers to send')
+  //    if(!_peers.length)
+  //      console.error('no peers to send')
       var b = Buffer.alloc(1+(_peers.length*Ipv4Peer.bytes))
       b[0] = RX_PEERS
       _peers.forEach((peer, i) => {
@@ -216,19 +219,26 @@ function addr2String(p) {
   return p.address+':'+p.port
 }
 function pretty (me, peers) {
-  var padding = [20, -5, -5, -7]
+  var padding = [20, -5, -5, -7, -6]
 
   console.log('\033[2J\033[H')
   console.log('My ip:', me ? addr2String(me) : 'unknown')
   console.log('Time:'+new Date().toISOString())
   console.log()
 
+  var ts = Date.now()
   var table = peers.map(e => {
-    return [addr2String(e), e.send.count, e.recv.count, e.rtt]
+    return [
+      addr2String(e),
+      e.send.count,
+      e.recv.count,
+      e.rtt,
+      e.recv.ts ? niceAgo(ts, e.recv.ts) : 'na'
+    ]
   })
  
   console.log(
-    [['ip', 'Send', 'Recv', 'RTT'], ...table]
+    [['ip', 'Send', 'Recv', 'RTT', 'heard'], ...table]
     .map(row => {
       return row.map((e, i) => (
         padding[i] < 0
