@@ -1,3 +1,5 @@
+#! /bin/env node
+
 //use a default port so that local multicast works
 var PORT = 1999
 
