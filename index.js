@@ -67,7 +67,7 @@ var TX_PING  = 0x10,
     RX_PEERS = 0x21,
     TX_FORWARD = 0x30
  
-var IPv4 = {
+var Ipv4 = {
   encode: function (peer, buffer, start) {
     peer.host.split('.').forEach((e, j) => {
       buffer[start+j] = +e
