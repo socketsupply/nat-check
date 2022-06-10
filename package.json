@@ -8,5 +8,8 @@
   },
   "author": "",
   "license": "ISC",
-  "bin": "./index.js"
+  "bin": "./index.js",
+  "dependencies": {
+    "nice-ago": "^1.0.1"
+  }
 }
