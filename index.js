@@ -14,14 +14,14 @@ function Peer (addr) {
   }
 }
 
-  function getOrAddPeer(peers, info) {
-    for(var i = 0; i < peers.length; i++)
-      if(peers[i].address == info.address && peers[i].port === info.port)
-        return peers[i]
-    var p = Peer(info)
-    peers.push(p)
-    return p
-  }
+function getOrAddPeer(peers, info) {
+  for(var i = 0; i < peers.length; i++)
+    if(peers[i].address == info.address && peers[i].port === info.port)
+      return peers[i]
+  var p = Peer(info)
+  peers.push(p)
+  return p
+}
 
 function createBase (socket, handlers) {
   var peers = []
@@ -86,7 +86,8 @@ var Ipv4 = {
         buffer[start+3],
       port: buffer.readUInt16BE(4),
     }
-  }
+  },
+  bytes: 2+4
 }
 
 var Ipv4Peer = {
@@ -99,7 +100,8 @@ var Ipv4Peer = {
     var peer = Ipv4.decode(buffer, start)
     peer.id = buffer.toString('hex', 6, 6+32)
     return peer
-  }
+  },
+  bytes: Ipv4.bytes + 32
 }
 
 function interval (fn, time) {
