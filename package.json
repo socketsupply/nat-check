@@ -1,6 +1,6 @@
 {
   "name": "p2p-supercollider",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "",
   "main": "index.js",
   "scripts": {
