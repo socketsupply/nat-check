@@ -84,7 +84,7 @@ var Ipv4 = {
         buffer[start+1] + '.' +
         buffer[start+2] + '.' +
         buffer[start+3],
-      port: buffer.readUInt32BE(4),
+      port: buffer.readUInt16BE(4),
     }
   }
 }
@@ -145,6 +145,7 @@ function createDHT (socket, seeds, id) {
 
       if(!(me.port == _me.port && me.address == _me.address))
         console.error("NAT PROBLEM", me, _me)
+      console.log('ME', me)
     }, 
     [TX_PEERS]: function (dht, buf, peer) {
       var _peers = dht.peers.filter(function (p) {
