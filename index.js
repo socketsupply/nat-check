@@ -161,7 +161,7 @@ function createDHT (socket, seeds, id) {
       _peers.forEach((peer, i) => {
         IPv4PEER.encode(peer, b, 1+i*6)
       })
-      dht.send(b)
+      dht.send(b, peer)
     },
     [RX_PEERS]: function (dht, buf, peer) {
       var start = 1
