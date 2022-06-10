@@ -76,8 +76,6 @@ var Ipv4 = {
     return 2+4
   },
   decode: function (buffer, start) {
-    var id = Buffer.alloc(32)
-    buffer.copy(id, 0, start+6)
     return {
       address:
         buffer[start]   + '.' +
@@ -126,7 +124,7 @@ function createDHT (socket, seeds, id) {
       var res = Buffer.alloc(1+32+6)
       res[0] = RX_PING
       if(!peer.id)
-        peer.id = buf.slice(1, 1+32)
+        peer.id = buf.toString('hex', 1, 33)
       //write our own id into the buffer
       res.write(id, 1, 'hex')
       //write the ip:port of the peer we received from
