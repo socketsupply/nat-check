@@ -157,7 +157,7 @@ function createDHT (socket, seeds, id) {
         return true
       })
       var b = Buffer.alloc(1+_peers.length)
-      b[0] = RES_PEERS
+      b[0] = RX_PEERS
       _peers.forEach((peer, i) => {
         IPv4PEER.encode(peer, b, 1+i*6)
       })
@@ -198,6 +198,14 @@ function createDHT (socket, seeds, id) {
     })
     dht.send(Ping, {address:'255.255.255.255', port: PORT})
   }, 10_000)
+
+  interval(() => {
+    dht.broadcastMap((peer) => {
+      if(peer.recv.ts + 2*60_000 < Date.now())
+        return Buffer.from([TX_PEERS])
+    })
+  }, 10_000)
+  
 
 }
 
