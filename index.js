@@ -156,7 +156,9 @@ function createDHT (socket, seeds, id) {
           return
         return true
       })
-      var b = Buffer.alloc(1+_peers.length)
+      if(!_peers.length)
+        console.log('no peers to send')
+      var b = Buffer.alloc(1+(_peers.length*Ipv4Peer.bytes))
       b[0] = RX_PEERS
       _peers.forEach((peer, i) => {
         Ipv4Peer.encode(peer, b, 1+i*6)
