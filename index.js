@@ -93,7 +93,8 @@ var Ipv4 = {
 var Ipv4Peer = {
   encode: function (peer, buffer, start) {
     Ipv4.encode(peer, buffer, start)
-    buffer.write(peer.id, start+Ipv4.bytes, 'hex')
+    if(peer.id)
+      buffer.write(peer.id, start+Ipv4.bytes, 'hex')
     return Ipv4Peer.bytes+32
   },
   decode: function (buffer, start) {
