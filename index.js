@@ -50,7 +50,11 @@ function createBase (socket, handlers) {
     peer.recv.ts = Date.now()
 
     var type = buf.readUInt16LE(0)
-    handlers[type](dht, buf, peer)
+    var handler = handlers[type]
+    if('function' === typeof handler)
+      handler(dht, buf, peer)
+    else
+      console.log('unknown message:',type)
   })
 
   return dht
@@ -191,7 +195,7 @@ function createDHT (socket, seeds, id) {
         return Ping
     })
     dht.send(Ping, {host:'255.255.255.255', port: PORT})
-  }, 60_000)
+  }, 10_000)
 
 }
 
@@ -199,7 +203,7 @@ if(!module.parent) {
   var socket = require('dgram').createSocket('udp4')
   var seeds = process.argv.slice(2).map(e => {
     var [host, port] = e.split(':')
-    return {host, port}
+    return {host, port: +port}
   })
   socket.bind(PORT)
   var id = require('crypto').randomBytes(32).toString('hex')
