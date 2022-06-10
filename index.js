@@ -25,10 +25,11 @@ function getOrAddPeer(peers, info) {
   return p
 }
 
-function createBase (socket, handlers) {
+function createBase (id, socket, handlers) {
   var peers = []
   var dht = {
     send (msg, peer) {
+      if(peer.id == id) return //do not send to self
       if(peer.send) {
         peer.send.ts = Date.now()
         peer.send.count ++
@@ -46,6 +47,9 @@ function createBase (socket, handlers) {
 
   socket.on('message', function (buf, rinfo) {
     //console.error("RECV", buf, rinfo)
+    if(rinfo.loopback) {
+      
+    }
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
@@ -119,7 +123,7 @@ function createDHT (socket, seeds, id) {
 
 //  var socket = dgram.createSocket('udp4')
   var me
-  var dht = createBase(socket, {
+  var dht = createBase(id, socket, {
     [TX_PING]: function(dht, buf, peer) {
       var res = Buffer.alloc(1+32+6)
       res[0] = RX_PING
@@ -210,7 +214,7 @@ function createDHT (socket, seeds, id) {
   }, 10_000)
   
   function update () {
-    pretty(me, dht.peers)
+    pretty(id, me, dht.peers)
   }
   interval(update, 5000)
 }
@@ -218,17 +222,19 @@ function createDHT (socket, seeds, id) {
 function addr2String(p) {
   return p.address+':'+p.port
 }
-function pretty (me, peers) {
-  var padding = [20, -5, -5, -7, -6]
+function pretty (id, me, peers) {
+  var padding = [10, 20, -5, -5, -7, -6]
 
   console.log('\033[2J\033[H')
   console.log('My ip:', me ? addr2String(me) : 'unknown')
+  console.log('id:', id)
   console.log('Time:'+new Date().toISOString())
   console.log()
 
   var ts = Date.now()
   var table = peers.map(e => {
     return [
+      e.id && e.id.substring(0, 8),
       addr2String(e),
       e.send.count,
       e.recv.count,
@@ -238,7 +244,7 @@ function pretty (me, peers) {
   })
  
   console.log(
-    [['ip', 'Send', 'Recv', 'RTT', 'heard'], ...table]
+    [['ID', 'ip', 'Send', 'Recv', 'RTT', 'heard'], ...table]
     .map(row => {
       return row.map((e, i) => (
         padding[i] < 0
@@ -250,13 +256,25 @@ function pretty (me, peers) {
 }
 
 if(!module.parent) {
+  var fs = require('fs')
   var socket = require('dgram').createSocket('udp4')
+//  socket.setBroadcast()
+  var id = require('crypto').randomBytes(32).toString('hex')
+  var path = require('path')
+  var id_file = path.join(process.env.HOME, '.p2p_id')
+  try {
+    id = fs.readFileSync(id_file, 'utf8')
+  } catch (_) {
+    fs.writeFileSync(id_file, id, 'utf8')
+  }
   var seeds = process.argv.slice(2).map(e => {
     var [address, port] = e.split(':')
     return {address, port: +port}
   })
   socket.bind(PORT)
-  var id = require('crypto').randomBytes(32).toString('hex')
+  setTimeout(function () {
+    socket.setBroadcast(true)
+  }, 1000)
   createDHT(socket, seeds, id)
   
 }
