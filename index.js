@@ -159,13 +159,13 @@ function createDHT (socket, seeds, id) {
       var b = Buffer.alloc(1+_peers.length)
       b[0] = RX_PEERS
       _peers.forEach((peer, i) => {
-        IPv4PEER.encode(peer, b, 1+i*6)
+        Ipv4Peer.encode(peer, b, 1+i*6)
       })
       dht.send(b, peer)
     },
     [RX_PEERS]: function (dht, buf, peer) {
       var start = 1
-      for(var start = 1; start + IPV4Peer.bytes <= buf.length; start += IPV4Peer.bytes) {
+      for(var start = 1; start + Ipv4Peer.bytes <= buf.length; start += Ipv4Peer.bytes) {
         var p = getOrAddPeer(dht.peers, IPv4.decode(buf, start))
         if(~p.from.indexOf(peer))
           p.from.push(peer)
