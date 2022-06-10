@@ -89,7 +89,7 @@ var Ipv4 = {
   }
 }
 
-var IPv4Peer = {
+var Ipv4Peer = {
   encode: function (peer, buffer, start) {
     IPv6Peer.encode(peer, buffer, start)
     buffer.write(peer.id, start+Ipv4Peer.bytes, 'hex')
