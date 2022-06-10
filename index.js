@@ -27,7 +27,6 @@ function createBase (socket, handlers) {
   var peers = []
   var dht = {
     send (msg, peer) {
-      console.error('send', peer, msg)
       if(peer.send) {
         peer.send.ts = Date.now()
         peer.send.count ++
@@ -44,7 +43,7 @@ function createBase (socket, handlers) {
   }
 
   socket.on('message', function (buf, rinfo) {
-    console.error('recv', rinfo, buf)
+    console.error("RECV", buf, rinfo)
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
@@ -106,7 +105,6 @@ var Ipv4Peer = {
 function interval (fn, time) {
   setInterval(fn, time).unref()
   fn()
-
 }
 
 function createDHT (socket, seeds, id) {
@@ -138,7 +136,6 @@ function createDHT (socket, seeds, id) {
       var _me = Ipv4.decode(buf, 1+32)
       if(!me) me = _me
       peer.pinged = _me
-
       //record round trip time. (if it makes sense)
       if(peer.send.ts < peer.recv.ts) {
         peer.rtt = peer.recv.ts - peer.send.ts
@@ -146,7 +143,8 @@ function createDHT (socket, seeds, id) {
 
       if(!(me.port == _me.port && me.address == _me.address))
         console.error("NAT PROBLEM", me, _me)
-      console.log('ME', me)
+
+      update()
     }, 
     [TX_PEERS]: function (dht, buf, peer) {
       var _peers = dht.peers.filter(function (p) {
@@ -158,7 +156,7 @@ function createDHT (socket, seeds, id) {
         return true
       })
       if(!_peers.length)
-        console.log('no peers to send')
+        console.error('no peers to send')
       var b = Buffer.alloc(1+(_peers.length*Ipv4Peer.bytes))
       b[0] = RX_PEERS
       _peers.forEach((peer, i) => {
@@ -176,6 +174,8 @@ function createDHT (socket, seeds, id) {
         if(!p.recv.ts && p.send.ts + 30_000 > Date.now())
           dht.send(Ping, p)
       }
+      update()
+
     },
     //forwarding is used for holepunching
     [TX_FORWARD]: function (dht, buf, peer) {
@@ -184,7 +184,6 @@ function createDHT (socket, seeds, id) {
     }
   })
 
-  console.log("SEEDS", seeds)
   seeds.forEach(function (p) {
     getOrAddPeer(dht.peers, p)    
   })
@@ -192,11 +191,9 @@ function createDHT (socket, seeds, id) {
 
   //ping active peers every 30 seconds
   //active peers means we have received from them within 2 minutes
-  console.log(Ping)
   interval(() => {
-    console.log(dht.peers)
     dht.broadcastMap((peer) => {
-      if(peer.recv.ts + 2*60_000 < Date.now())
+//      if(peer.recv.ts + 2*60_000 < Date.now())
         return Ping
     })
     dht.send(Ping, {address:'255.255.255.255', port: PORT})
@@ -204,12 +201,42 @@ function createDHT (socket, seeds, id) {
 
   interval(() => {
     dht.broadcastMap((peer) => {
-      if(peer.recv.ts + 2*60_000 < Date.now())
+   //   if(peer.recv.ts + 2*60_000 < Date.now())
         return Buffer.from([TX_PEERS])
     })
   }, 10_000)
   
+  function update () {
+    pretty(me, dht.peers)
+  }
+  interval(update, 5000)
+}
 
+function addr2String(p) {
+  return p.address+':'+p.port
+}
+function pretty (me, peers) {
+  var padding = [20, -5, -5, -7]
+
+  console.log('\033[2J\033[H')
+  console.log('My ip:', me ? addr2String(me) : 'unknown')
+  console.log('Time:'+new Date().toISOString())
+  console.log()
+
+  var table = peers.map(e => {
+    return [addr2String(e), e.send.count, e.recv.count, e.rtt]
+  })
+ 
+  console.log(
+    [['ip', 'Send', 'Recv', 'RTT'], ...table]
+    .map(row => {
+      return row.map((e, i) => (
+        padding[i] < 0
+        ? (e||'').toString().padStart(padding[i] * -1, ' ')
+        : (e||'').toString().padEnd(padding[i], ' ')
+      )).join('')
+    }).join('\n')
+  )
 }
 
 if(!module.parent) {
@@ -221,5 +248,5 @@ if(!module.parent) {
   socket.bind(PORT)
   var id = require('crypto').randomBytes(32).toString('hex')
   createDHT(socket, seeds, id)
-
+  
 }
