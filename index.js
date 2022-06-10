@@ -125,7 +125,7 @@ function createDHT (socket, seeds, id) {
       if(!peer.id)
         peer.id = buf.slice(1, 1+32)
       //write our own id into the buffer
-      id.copy(res, 0, 1)
+      res.write(id, 1, 'hex')
       //write the ip:port of the peer we received from
       Ipv4.encode(peer, res, 1+32)
       dht.send(res, peer)
