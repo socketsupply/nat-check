@@ -4,6 +4,7 @@
 var PORT = 1999
 
 var niceAgo = require('nice-ago')
+var os = require('os')
 
 function Peer (addr) {
   return {
@@ -14,6 +15,14 @@ function Peer (addr) {
     send: {ts: 0, count: 0},
     from: []
   }
+}
+
+function my_addresses() {
+  var addrs = {}
+  var ints = os.networkInterfaces()
+  for(var int in ints)
+    ints[int].forEach(v => addrs[v.address] = true)
+  return addrs
 }
 
 function getOrAddPeer(peers, info) {
@@ -30,6 +39,8 @@ function createBase (id, socket, handlers) {
   var dht = {
     send (msg, peer) {
       if(peer.id == id) return //do not send to self
+      if(peer.address == '0.0.0.0') return
+      if(my_addresses()[peer.address]) return console.log("SKIP", peer)
       if(peer.send) {
         peer.send.ts = Date.now()
         peer.send.count ++
@@ -47,8 +58,10 @@ function createBase (id, socket, handlers) {
 
   socket.on('message', function (buf, rinfo) {
     //console.error("RECV", buf, rinfo)
-    if(rinfo.loopback) {
-      
+    //ignore loopback messages to ourselves
+    if(my_addresses()[rinfo.address]) {
+      console.log('drop:', rinfo)
+      return
     }
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
@@ -174,7 +187,9 @@ function createDHT (socket, seeds, id) {
     [RX_PEERS]: function (dht, buf, peer) {
       var start = 1
       for(var start = 1; start + Ipv4Peer.bytes <= buf.length; start += Ipv4Peer.bytes) {
-        var p = getOrAddPeer(dht.peers, Ipv4.decode(buf, start))
+        var new_peer = Ipv4.decode(buf, start)
+        var p = getOrAddPeer(dht.peers, new_peer)
+        //console.error("NP", new_peer)
         if(~p.from.indexOf(peer))
           p.from.push(peer)
        //try to ping new peer, but not if we already pinged them within 30 seconds
@@ -225,7 +240,7 @@ function addr2String(p) {
 function pretty (id, me, peers) {
   var padding = [10, 20, -5, -5, -7, -6]
 
-  console.log('\033[2J\033[H')
+ // console.log('\033[2J\033[H')
   console.log('My ip:', me ? addr2String(me) : 'unknown')
   console.log('id:', id)
   console.log('Time:'+new Date().toISOString())
@@ -244,7 +259,7 @@ function pretty (id, me, peers) {
   })
  
   console.log(
-    [['ID', 'ip', 'Send', 'Recv', 'RTT', 'heard'], ...table]
+    [['Id', 'ip', 'Send', 'Recv', 'RTT', 'alive'], ...table]
     .map(row => {
       return row.map((e, i) => (
         padding[i] < 0
