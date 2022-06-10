@@ -26,21 +26,25 @@ function Peer (addr) {
 function createBase (socket, handlers) {
   var peers = []
   var dht = {
-    send (peer, msg) {
-      peer.send.ts = Date.now()
-      peer.send.count ++
+    send (msg, peer) {
+      console.error('send', peer, msg)
+      if(peer.send) {
+        peer.send.ts = Date.now()
+        peer.send.count ++
+      }
       socket.send(msg, peer.port, peer.host)
     },
     broadcast (msg) {
-      peers.forEach(p => this.send(p, msg))
+      peers.forEach(p => this.send(msg, p))
     },
     broadcastMap (fn) {
-      peers.forEach(p => { var msg = fn(p); if(msg) this.send(p, msg) })
+      peers.forEach(p => { var msg = fn(p); if(msg) this.send(msg, p) })
     },
     peers
   }
 
   socket.on('message', function (buf, rinfo) {
+    console.error('recv', rinfo, buf)
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
@@ -92,6 +96,12 @@ var IPv4Peer = {
     peer.id = buffer.toString('hex', 6, 6+32)
     return peer
   }
+}
+
+function interval (fn, time) {
+  setInterval(fn, time).unref()
+  fn()
+
 }
 
 function createDHT (socket, seeds, id) {
@@ -166,23 +176,30 @@ function createDHT (socket, seeds, id) {
     }
   })
 
+  console.log("SEEDS", seeds)
+  seeds.forEach(function (p) {
+    getOrAddPeer(dht.peers, p)    
+  })
+
+
   //ping active peers every 30 seconds
   //active peers means we have received from them within 2 minutes
-  setInterval(() => {
+  interval(() => {
     console.log(dht.peers)
     dht.broadcastMap((peer) => {
       if(peer.recv.ts + 2*60_000 < Date.now())
         return Ping
     })
     dht.send(Ping, {host:'255.255.255.255', port: PORT})
-  }, 60_000).unref()
+  }, 60_000)
 
 }
 
 if(!module.parent) {
   var socket = require('dgram').createSocket('udp4')
-  var seeds = process.argv.slice(3).map(e => {
+  var seeds = process.argv.slice(2).map(e => {
     var [host, port] = e.split(':')
+    return {host, port}
   })
   socket.bind(PORT)
   var id = require('crypto').randomBytes(32).toString('hex')
