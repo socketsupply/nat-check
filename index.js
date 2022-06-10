@@ -121,7 +121,7 @@ function createDHT (socket, seeds, id) {
   var dht = createBase(socket, {
     [TX_PING]: function(dht, buf, peer) {
       var res = Buffer.alloc(1+32+6)
-      res[0] = PONG
+      res[0] = RX_PING
       if(!peer.id)
         peer.id = buf.slice(1, 1+32)
       //write our own id into the buffer
