@@ -5,7 +5,7 @@ var PORT = 1999
 
 function Peer (addr) {
   return {
-    host: addr.host,
+    address: addr.address,
     port: addr.port,
     id: addr.id,
     recv: {ts: 0, count: 0},
@@ -16,7 +16,7 @@ function Peer (addr) {
 
   function getOrAddPeer(peers, info) {
     for(var i = 0; i < peers.length; i++)
-      if(peers[i].host == info.host && peers[i].port === info.port)
+      if(peers[i].address == info.address && peers[i].port === info.port)
         return peers[i]
     var p = Peer(info)
     peers.push(p)
@@ -32,7 +32,7 @@ function createBase (socket, handlers) {
         peer.send.ts = Date.now()
         peer.send.count ++
       }
-      socket.send(msg, peer.port, peer.host)
+      socket.send(msg, peer.port, peer.address)
     },
     broadcast (msg) {
       peers.forEach(p => this.send(msg, p))
@@ -69,7 +69,7 @@ var TX_PING  = 0x10,
  
 var Ipv4 = {
   encode: function (peer, buffer, start) {
-    peer.host.split('.').forEach((e, j) => {
+    peer.address.split('.').forEach((e, j) => {
       buffer[start+j] = +e
     })
     buffer.writeUint16BE(peer.port, 4)
@@ -79,7 +79,7 @@ var Ipv4 = {
     var id = Buffer.alloc(32)
     buffer.copy(id, 0, start+6)
     return {
-      host:
+      address:
         buffer[start]   + '.' +
         buffer[start+1] + '.' +
         buffer[start+2] + '.' +
@@ -143,7 +143,7 @@ function createDHT (socket, seeds, id) {
         peer.rtt = peer.recv.ts - peer.send.ts
       }
 
-      if(!(me.port == _me.port && me.host == _me.host))
+      if(!(me.port == _me.port && me.address == _me.address))
         console.error("NAT PROBLEM", me, _me)
     }, 
     [TX_PEERS]: function (dht, buf, peer) {
@@ -195,7 +195,7 @@ function createDHT (socket, seeds, id) {
       if(peer.recv.ts + 2*60_000 < Date.now())
         return Ping
     })
-    dht.send(Ping, {host:'255.255.255.255', port: PORT})
+    dht.send(Ping, {address:'255.255.255.255', port: PORT})
   }, 10_000)
 
 }
@@ -203,8 +203,8 @@ function createDHT (socket, seeds, id) {
 if(!module.parent) {
   var socket = require('dgram').createSocket('udp4')
   var seeds = process.argv.slice(2).map(e => {
-    var [host, port] = e.split(':')
-    return {host, port: +port}
+    var [address, port] = e.split(':')
+    return {address, port: +port}
   })
   socket.bind(PORT)
   var id = require('crypto').randomBytes(32).toString('hex')
