@@ -1,5 +1,18 @@
 #! /bin/env node
 
+//Endpoint Independent Mapping - same host, same port, if from same port
+//Endpoint Dependent Mapping - messages from the same port mapped through different ports for different host:port combinations
+//static
+
+// types of nattedness
+//   - nonat / static. ip is reachable from everywhere
+//   - semistatic - static ip but no uptime promise
+//   - endpoint independent 
+//   - endpoint dependent
+
+// upnp can sometimes be used to create a semistatic ip address, that keeps the same
+// outside address open.
+
 //use a default port so that local multicast works
 var PORT = 1999
 
@@ -34,13 +47,20 @@ function getOrAddPeer(peers, info) {
   return p
 }
 
+function isSelf(peer) {
+  if(!peer) return false
+  if(peer.address == '0.0.0.0') return true
+  if(peer.address == '127.0.0.1') return true
+  if(my_addresses()[peer.address]) return true
+  return false
+}
+
 function createBase (id, socket, handlers) {
   var peers = []
   var dht = {
     send (msg, peer) {
+      if(isSelf(peer)) return
       if(peer.id == id) return //do not send to self
-      if(peer.address == '0.0.0.0') return
-      if(my_addresses()[peer.address]) return console.log("SKIP", peer)
       if(peer.send) {
         peer.send.ts = Date.now()
         peer.send.count ++
@@ -56,13 +76,12 @@ function createBase (id, socket, handlers) {
     peers
   }
 
-  socket.on('message', function (buf, rinfo) {
+  socket.on('message', function (buf, rinfo, port) {
+    //most receive on a secondary port should be ignored
+    if(isSelf(rinfo)) return
     //console.error("RECV", buf, rinfo)
     //ignore loopback messages to ourselves
-    if(my_addresses()[rinfo.address]) {
-      console.log('drop:', rinfo)
-      return
-    }
+  //  if(port && port != PORT) {
     var peer = getOrAddPeer(peers, rinfo)
     peer.recv.count ++
     peer.recv.ts = Date.now()
@@ -135,7 +154,7 @@ function createDHT (socket, seeds, id) {
   Ping.write(id, 1, 'hex')
 
 //  var socket = dgram.createSocket('udp4')
-  var me
+  var me, me2
   var dht = createBase(id, socket, {
     [TX_PING]: function(dht, buf, peer) {
       var res = Buffer.alloc(1+32+6)
@@ -210,7 +229,6 @@ function createDHT (socket, seeds, id) {
     getOrAddPeer(dht.peers, p)    
   })
 
-
   //ping active peers every 30 seconds
   //active peers means we have received from them within 2 minutes
   interval(() => {
@@ -272,8 +290,8 @@ function pretty (id, me, peers) {
 
 if(!module.parent) {
   var fs = require('fs')
-  var socket = require('dgram').createSocket('udp4')
-//  socket.setBroadcast()
+  var socket = require('./many').createSocket('udp4')
+  socket.on('listening', function () { socket.setBroadcast() })
   var id = require('crypto').randomBytes(32).toString('hex')
   var path = require('path')
   var id_file = path.join(process.env.HOME, '.p2p_id')
@@ -287,9 +305,9 @@ if(!module.parent) {
     return {address, port: +port}
   })
   socket.bind(PORT)
-  setTimeout(function () {
-    socket.setBroadcast(true)
-  }, 1000)
+ // setTimeout(function () {
+ //   socket.setBroadcast(true)
+ // }, 1000)
   createDHT(socket, seeds, id)
   
 }
