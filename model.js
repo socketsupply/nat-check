@@ -70,23 +70,29 @@ class Nat extends Network {
   getPort () {
     return ~~(Math.random()*0xffff)
   }
+  addFirewall () {
+
+  }
+  getFirewall (addr) {
+    return true
+  }
   //subclasses must implement getKey
   drop (msg, dst, src) {
     var key = this.getKey(dst, src)
-    var mapped = this.map[key]
-    if(!mapped) {
-      var port = this.getPort()
+    var port = this.map[key]
+    if(!port) {
+      port = this.getPort()
       this.map[key] = port
       this.unmap[port] = src
-      this.send.push({msg, addr: dst, port: port})
     }
-    else {
-      this.send.push({msg, addr: dst, port: mapped})
-    }
+    this.addFirewall(dst)
+    this.send.push({msg, addr: dst, port: port})
   }
   //msg, from, to
   onMessage (msg, addr, port) {
     //network has received an entire packet
+    if(!this.getFirewall(addr)) return
+
     var dst = this.unmap[port]
     this.subnet[dst.address].recv.push({msg, addr, port: dst.port})
   }
@@ -95,6 +101,22 @@ class Nat extends Network {
 class IndependentNat extends Nat {
   getKey (dst, src) {
     return src.address+':'+src.port
+  }
+}
+
+class IndependentFirewallNat extends Nat {
+  constructor (prefix) {
+    super(prefix)
+    this.firewall = {}
+  }
+  getKey (dst, src) {
+    return src.address+':'+src.port
+  }
+  addFirewall(addr) {
+    this.firewall[addr.address+':'+addr.port] = true
+  }
+  getFirewall(addr) {
+    return !!this.firewall[addr.address+':'+addr.port]
   }
 }
 
@@ -148,4 +170,4 @@ function iterate (subnet, drop, steps) {
   return changed
 }
 
-module.exports = {iterate, Node, Network, IndependentNat}
+module.exports = {iterate, Node, Network, IndependentNat, IndependentFirewallNat}
