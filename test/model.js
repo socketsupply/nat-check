@@ -375,7 +375,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
     }
   }))
   var nat_A, nat_B, received_a = [], received_b = []
-  network.add(B, nat_B = new DependentNat('b.b.'))
+  network.add(B, nat_B = new DependentNat('b.b.')) //AKA Symmetric NAT
   network.add(A, nat_A = new IndependentFirewallNat('a.a.'))
   //nat.subnet = subnetwork
 
