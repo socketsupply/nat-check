@@ -1,4 +1,4 @@
-var {iterate, Node, Network, IndependentNat, IndependentFirewallNat} = require('../model')
+var {iterate, Node, Network, IndependentNat, IndependentFirewallNat, DependentNat} = require('../model')
 var network = new Network()
 
 var test = require('tape')
@@ -321,34 +321,124 @@ test('nat (with firewall) must be opened by outgoing messages direct to peer', f
   })
 
 
-  //Bob holepunches to Alice by sending to the port opened by previous message
+  //Bob opens a port for alice by sending a packet to her, but Alice's firewall does not let it through
   node_b.send.push({msg: "B-(holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: 10}) 
   network.iterate(-1)
 
   //this message did not get through but it did open B's firewall
   t.equal(received_a.length, 0)
-  console.log(node_b, nat_B, nat_A, node_a)
+  t.equal(received_b.length, 0)
 
   t.deepEqual(nat_B.firewall, {
     [C+':1']: true,
     [A+':'+echo_a.msg.port]: true
   })
 
-  //Bob holepunches to Alice by sending to the port opened by previous message
+
+  //Alice holepunches to Body by sending to the port opened found from C, through the hole opened
+  //by Bob's by previous message
   node_a.send.push({msg: "A-(holepunch)->B", addr: {address: B, port: echo_b.msg.port}, port: 10}) 
   network.iterate(-1)
 
   t.equal(received_b.length, 1)
-//  t.deepEqual(nat_B.firewall, {[A+':'+echo.msg.port]: true})
 
-/*
-  var holepunch = received_a.shift()
-  t.equal(holepunch.msg, "B-(holepunch)->A")
-  t.equal(holepunch.addr.address, B)
-  t.notEqual(holepunch.addr.port, 20)
-*/
+  //Bob can now send to Alice
+  node_b.send.push({msg: "B-(holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: 10}) 
+  network.iterate(-1)
+
+  t.equal(received_a.length, 1)
+
   t.end()
-
 })
 
 
+test('one side dependent nat requires birthday paradox', function (t) {
+
+  var echos = 0, received = false, dropped = false
+  var network = new Network()
+  network.drop = function () {
+    dropped = true
+  }
+  var A = 'aa.aa.aa.aa'
+  var B = 'bb.bb.bb.bb'
+  var C = 'cc.cc.cc.cc'
+  var a = 'a.a.a.a'
+  var b = 'b.b.b.b'
+
+  //publically accessable rendevu server.
+  //sends the source address back, so the natted'd peer knows it's external address
+  network.add(C, node_c = new Node((send) => {
+    send("ANYONE HOME?", B, 1)
+    return (msg, addr, port) => {
+      console.log("ECHO ADDR", {msg, addr, port})
+      send(addr, addr, port)
+    }
+  }))
+  var nat_A, nat_B, received_a = [], received_b = []
+  network.add(B, nat_B = new DependentNat('b.b.'))
+  network.add(A, nat_A = new IndependentFirewallNat('a.a.'))
+  //nat.subnet = subnetwork
+
+  nat_A.add(a, node_a = new Node((send) => (msg, addr, port) => {
+    received_a.push({msg, addr, port})
+  }))
+  nat_B.add(b, node_b = new Node((send) => (msg, addr, port) => {     
+    received_b.push({msg, addr, port})
+  }))
+
+
+  //Alice opens a port, by messaging the intro server C.
+  node_a.send.push({msg: "A->C", addr: {address: C, port: 1}, port: 10}) 
+//  node_b.send.push({msg: "A->B", addr: {address: C, port: 1}, port: 10}) 
+  network.iterate(-1)
+
+  t.ok(received_a.length)
+//  t.ok(received_b.length)
+  
+  var echo_a = received_a.shift()
+//  var echo_b = received_b.shift()
+  t.deepEqual(echo_a.addr, {address:C, port: 1})
+  t.equal(echo_a.msg.address, A)
+  t.notEqual(echo_a.msg.port, 10)
+
+  function rand_port () {
+    return ~~(Math.random() * 0xffff)
+  }
+  var N = 64
+  //256 messages should mostly likely open the ports
+    for(var i = 0; i < N; i++) {
+      node_b.send.push({msg: "B-(hb:holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: rand_port()}) 
+    }
+
+    network.iterate(-1)
+    t.equal(received_a.length, 0)
+  //t.ok(Object.keys(nat_B.map).length > 200, 'expected opened a lot of channels')
+
+
+  while(!received_b.length) {
+    for(var i = 0; i < N; i++) {
+      var p = rand_port()
+      if(nat_B.unmap[p])
+        console.log("MATCH", p, nat_B.unmap[p]) 
+      node_a.send.push({msg: "B-(hb:holepunch)->A", addr: {address: B, port: p}, port: 10}) 
+    }
+    //console.log("ITERATE")
+    network.iterate(-1)
+  }
+  console.log(received_a)
+  console.log(received_b)
+  t.notEqual(received_b.length, 0)
+  received_a = []
+  while(received_b.length) {
+    var echo = received_b.shift()
+    node_b.send.push({msg: "echo:"+echo.msg, addr: echo.addr, port: echo.port})
+    network.iterate(-1)
+    t.equal(received_a.shift().msg, "echo:"+echo.msg)
+  }
+//  console.log(JSON.stringify(network, null, 2))
+
+  //this message did not get through but it did open B's firewall
+
+
+  t.end()
+})

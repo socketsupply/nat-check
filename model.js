@@ -91,10 +91,19 @@ class Nat extends Network {
   //msg, from, to
   onMessage (msg, addr, port) {
     //network has received an entire packet
-    if(!this.getFirewall(addr)) return
+    if(!this.getFirewall(addr)) {
+//      console.log("FW!", addr)
+
+      return
+    }
+
 
     var dst = this.unmap[port]
-    this.subnet[dst.address].recv.push({msg, addr, port: dst.port})
+    console.log('recv', port, dst)
+    if(dst)
+      this.subnet[dst.address].recv.push({msg, addr, port: dst.port})
+    else
+      console.log("DROP", msg, addr, dst)
   }
 }
 
@@ -120,13 +129,14 @@ class IndependentFirewallNat extends Nat {
   }
 }
 
+//since a dependant nat always changes ports for different hosts
+//it acts like it's a firewall and a nat combined.
 class DependentNat extends Nat {
   getKey (dst, src) {
-    return dst.address+':'+src.dst
+    return dst.address+':'+dst.port+'->'+src.port
   }
+  getFirewall () { return true }
 }
-
-
 
 //iterate the network. steps=1 to do one set of message passes, -1 to run to completion
 function iterate (subnet, drop, steps) {
@@ -139,7 +149,6 @@ function iterate (subnet, drop, steps) {
       if(node.send.length) {
         var packet = node.send.shift()
         changed = true
-        console.log("PACKET", packet)
         var dest = subnet[packet.addr.address]
         if(dest) {
           dest.recv.push({msg:packet.msg, addr: {address: ip, port: packet.port}, port: packet.addr.port})
@@ -170,4 +179,4 @@ function iterate (subnet, drop, steps) {
   return changed
 }
 
-module.exports = {iterate, Node, Network, IndependentNat, IndependentFirewallNat}
+module.exports = {iterate, Node, Network, IndependentNat, IndependentFirewallNat, DependentNat}
