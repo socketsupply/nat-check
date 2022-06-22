@@ -40,8 +40,8 @@ class Network extends Node {
   iterate (steps) {
     iterate(this.subnet, this.drop.bind(this), steps)
   }
-  drop () {
-    throw new Error('cannot send to outside address')
+  drop (msg, addr) {
+    throw new Error('cannot send to outside address:'+JSON.stringify(addr))
   }
   //msg, from, to
   onMessage ({msg, addr, port}) {
@@ -68,7 +68,11 @@ class Nat extends Network {
     return iterate(this.subnet, this.drop.bind(this), steps)
   }
   getPort () {
-    return ~~(Math.random()*0xffff)
+    this.ports = this.ports || {}
+    var r
+    while(this.ports[r = ~~(Math.random()*0xffff)]);
+    this.ports[r] = true 
+    return r
   }
   addFirewall () {
 
@@ -99,11 +103,8 @@ class Nat extends Network {
 
 
     var dst = this.unmap[port]
-    console.log('recv', port, dst)
     if(dst)
       this.subnet[dst.address].recv.push({msg, addr, port: dst.port})
-    else
-      console.log("DROP", msg, addr, dst)
   }
 }
 
@@ -132,13 +133,25 @@ class IndependentFirewallNat extends Nat {
 //since a dependant nat always changes ports for different hosts
 //it acts like it's a firewall and a nat combined.
 class DependentNat extends Nat {
+  constructor (prefix) {
+    super(prefix)
+    this.firewall = {}
+  }
   getKey (dst, src) {
     return dst.address+':'+dst.port+'->'+src.port
   }
-  getFirewall () { return true }
+  addFirewall(addr) {
+    this.firewall[addr.address+':'+addr.port] = true
+  }
+  getFirewall(addr) {
+    return !!this.firewall[addr.address+':'+addr.port]
+  }
 }
 
 //iterate the network. steps=1 to do one set of message passes, -1 to run to completion
+
+//XXX a better approach here would be to use a heap (sorted queue) to order events
+//    with random sort values it would be possible to sample search of all possible orderings
 function iterate (subnet, drop, steps) {
   if(!subnet) throw new Error('iterate *must* be passed `network`')
   if(isNaN(steps)) throw new Error('steps must be number, use -1 to run til completion')
