@@ -9,7 +9,7 @@
   "author": "",
   "license": "ISC",
   "bin": {
-    "p2p-supercollider": "./index.js",
+    "p2p-supercollider": "./cmd.js",
     "nat-check": "./nat-check.js"
   }
   "dependencies": {
