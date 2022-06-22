@@ -1,4 +1,4 @@
-
+#! /bin/env node
 
 /*
   an implementation of the NAT-check program described in the paper:
