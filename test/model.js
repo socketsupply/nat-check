@@ -359,6 +359,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
   network.drop = function () {
     dropped = true
   }
+
   var A = 'aa.aa.aa.aa'
   var B = 'bb.bb.bb.bb'
   var C = 'cc.cc.cc.cc'
@@ -374,6 +375,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
       send(addr, addr, port)
     }
   }))
+
   var nat_A, nat_B, received_a = [], received_b = []
   network.add(B, nat_B = new DependentNat('b.b.')) //AKA Symmetric NAT
   network.add(A, nat_A = new IndependentFirewallNat('a.a.'))
@@ -401,32 +403,37 @@ test('one side dependent nat requires birthday paradox', function (t) {
   t.equal(echo_a.msg.address, A)
   t.notEqual(echo_a.msg.port, 10)
 
-  function rand_port () {
-    return ~~(Math.random() * 0xffff)
+  function create_rand_port () {
+    var ports = {}
+    return function () {
+//      return ~~(Math.random() * 0xffff)
+      while(ports[r = ~~(Math.random() * 0xffff)]);
+      ports[r] = true
+      return r
+    }
   }
   var N = 64
-  //256 messages should mostly likely open the ports
-    for(var i = 0; i < N; i++) {
-      node_b.send.push({msg: "B-(hb:holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: rand_port()}) 
-    }
+  //B (Endpoint Dependant / Symmetrical Nat) opens 256 ports
+  var rand_port = create_rand_port()
+  for(var i = 0; i < N; i++) {
+    node_b.send.push({msg: "B-(hb:holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: rand_port()}) 
+  }
 
-    network.iterate(-1)
-    t.equal(received_a.length, 0)
-  //t.ok(Object.keys(nat_B.map).length > 200, 'expected opened a lot of channels')
+  network.iterate(-1)
+  t.equal(received_a.length, 0)
 
-
+  
+  var rand_port = create_rand_port()
+  var tries = 0
   while(!received_b.length) {
     for(var i = 0; i < N; i++) {
-      var p = rand_port()
-      if(nat_B.unmap[p])
-        console.log("MATCH", p, nat_B.unmap[p]) 
-      node_a.send.push({msg: "B-(hb:holepunch)->A", addr: {address: B, port: p}, port: 10}) 
+      node_a.send.push({msg: "B-(hb:holepunch)->A", addr: {address: B, port: rand_port()}, port: 10}) 
     }
     //console.log("ITERATE")
+    tries += N
     network.iterate(-1)
   }
-  console.log(received_a)
-  console.log(received_b)
+  console.log("connected after:", tries)
   t.notEqual(received_b.length, 0)
   received_a = []
   while(received_b.length) {
@@ -435,10 +442,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
     network.iterate(-1)
     t.equal(received_a.shift().msg, "echo:"+echo.msg)
   }
-//  console.log(JSON.stringify(network, null, 2))
-
-  //this message did not get through but it did open B's firewall
-
-
   t.end()
 })
+
+//to make a connection between two 
