@@ -8,8 +8,14 @@
   },
   "author": "",
   "license": "ISC",
-  "bin": "./index.js",
+  "bin": {
+    "p2p-supercollider": "./index.js",
+    "nat-check": "./nat-check.js"
+  }
   "dependencies": {
     "nice-ago": "^1.0.1"
+  },
+  "devDependencies": {
+    "tape": "^5.5.3"
   }
 }
