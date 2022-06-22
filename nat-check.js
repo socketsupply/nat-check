@@ -145,11 +145,11 @@ function Client (server1, server2, server3) {
           this.error = 'address mismatch'
         }
         if(s1.addr.port == s2.addr.port) {
-          console.log('easy nat', s1.addr.port)
+          console.log('easy nat', s1.addr.address+':'+s1.addr.port)
           this.nat = 'easy'
         }
         else {
-          console.log('hard nat', s1.addr.port, s2.addr.port)
+          console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
           this.nat = 'hard'
         }
       }
@@ -185,7 +185,7 @@ function wrap (fn, ports, codec) {
 }
 
 if(!module.parent) {
-  var defaults = []
+  var defaults = ['3.25.141.150','13.211.129.58','3.26.157.68']
 
   var json = {
     encode: (obj) => Buffer.from(JSON.stringify(obj)),
@@ -195,7 +195,14 @@ if(!module.parent) {
   var cmd = process.argv[2]
   var options = process.argv.slice(3)
   if(cmd === 'server1') wrap(Server1(), [PORT], json)
-  if(cmd === 'server2') wrap(Server2(options[0] || defaults[1]), [PORT], json)
-  if(cmd === 'server3') wrap(Server3(), [PORT], json)
-  if(cmd === 'client') wrap(Client(...(options.length ? options : defaults)), [PORT], json)
+  else if(cmd === 'server2') wrap(Server2(options[0] || defaults[1]), [PORT], json)
+  else if(cmd === 'server3') wrap(Server3(), [PORT], json)
+  else if(cmd === 'client') {
+    wrap(Client(...(options.length ? options : defaults)), [PORT], json)
+    setTimeout(function () {
+      process.exit(0)
+    }, 5_000)
+  }
+  else console.log('usage: nat-check client|server1|server2 <server3_ip>|server3')
+
 }
