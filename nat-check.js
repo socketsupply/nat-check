@@ -195,7 +195,7 @@ if(!module.parent) {
   var cmd = process.argv[2]
   var options = process.argv.slice(3)
   if(cmd === 'server1') wrap(Server1(), [PORT], json)
-  if(cmd === 'server2') wrap(Server2(option[0] || defaults[1]), [PORT], json)
+  if(cmd === 'server2') wrap(Server2(options[0] || defaults[1]), [PORT], json)
   if(cmd === 'server3') wrap(Server3(), [PORT], json)
   if(cmd === 'client') wrap(Client(...(options.length ? options : defaults)), [PORT], json)
 }
