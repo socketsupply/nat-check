@@ -161,6 +161,19 @@ function Client (server1, server2, server3) {
   }
 }
 
+function Peer (remote, message) {
+  var [address, port] = remote.split(':')
+  return function (send) {
+    setInterval(()=> {
+      console.log('send...', remote)
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, PORT)
+    }, 1000)
+    return function (msg, addr, port) {
+      console.log('received:', msg)
+    }
+  }
+}
+
 module.exports = {Server1, Server2, Server3, Client}
 var dgram = require('dgram')
 
@@ -202,6 +215,13 @@ if(!module.parent) {
     setTimeout(function () {
       process.exit(0)
     }, 5_000)
+  }
+  else if(cmd === 'peer') {
+    if(!options[0]) {
+      console.error('usage: nat-check peer {remote ip:port}')
+      process.exit(1)
+    }
+    wrap(Peer(options[0]), [PORT], json)
   }
   else console.log('usage: nat-check client|server1|server2 <server3_ip>|server3')
 
