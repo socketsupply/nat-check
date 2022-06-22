@@ -19,13 +19,33 @@ var PORT = 1999
 var niceAgo = require('nice-ago')
 var os = require('os')
 
+var {Ipv4, Ipv4Peer} = require('./codec')
+var {pretty, addr2String} = require('./util')
+
+//a peer has a unique id
+//and can have multiple addresses
+
+// or should the model be about addresses not peers?
+// if the address responds, it can have an id.
+// if you have two addresses with the same id,
+// only send messages to one of those.
+
+// but given several addresses for a peer how do we decide which
+// we should send to?
+
+// hmm for multiple ports behind a nat it also matters which port we send _FROM_
+// we need to send to an address that we have received packets from.
+
 function Peer (addr) {
   return {
     address: addr.address,
+//    addresss: []
     port: addr.port,
     id: addr.id,
+    type: 0, //0=unknown, 1=static, 2=semistatic, 4=independent, 8=dependant
     recv: {ts: 0, count: 0},
     send: {ts: 0, count: 0},
+    rtt: -1,
     from: []
   }
 }
@@ -38,11 +58,22 @@ function my_addresses() {
   return addrs
 }
 
-function getOrAddPeer(peers, info) {
+function getPeer (peers, info) {
   for(var i = 0; i < peers.length; i++)
     if(peers[i].address == info.address && peers[i].port === info.port)
       return peers[i]
-  var p = Peer(info)
+  return null
+}
+
+function getOrAddPeer(peers, info) {
+  var p = getPeer(peers, info)
+  if(p) return p
+  else p = Peer(info)
+  //we might have first got the peer by a ping or something that didn't send
+  //these details, so if we have these now, update them.
+  p.type = p.type || info.type
+  p.id = p.id || info.id
+
   peers.push(p)
   return p
 }
@@ -73,80 +104,49 @@ function createBase (id, socket, handlers) {
     broadcastMap (fn) {
       peers.forEach(p => { var msg = fn(p); if(msg) this.send(msg, p) })
     },
+    getPeer: function (info) {
+      return getPeer(peers, info)      
+    },
+    addPeer: function (info) {
+      return addOrGetPeer(peers, info)
+    },
     peers
   }
 
   socket.on('message', function (buf, rinfo, port) {
-    //most receive on a secondary port should be ignored
     if(isSelf(rinfo)) return
-    //console.error("RECV", buf, rinfo)
-    //ignore loopback messages to ourselves
-  //  if(port && port != PORT) {
-    var peer = getOrAddPeer(peers, rinfo)
-    peer.recv.count ++
-    peer.recv.ts = Date.now()
-
     var type = buf[0]
     var handler = handlers[type]
-    if('function' === typeof handler)
-      handler(dht, buf, peer)
+    if('function' === typeof handler) {
+      handler(dht, buf, rinfo, port)
+      var peer = getPeer(peers, rinfo)
+      if(peer) {
+        peer.recv.count ++
+        peer.recv.ts = Date.now()
+      }
+    }
     else
-      console.log('unknown message:',type)
+      console.log('unknown message type:', type)
   })
 
   return dht
 
 }
 
-var TX_PING  = 0x10,
-    RX_PING  = 0x11,
-    TX_PEERS = 0x20,
-    RX_PEERS = 0x21,
-    TX_FORWARD = 0x30
+var TX_PING  = 0x12,
+    RX_PING  = 0x13,
+    TX_PEERS = 0x22,
+    RX_PEERS = 0x23,
+    TX_FORWARD = 0x32
  
-var Ipv4 = {
-  encode: function (peer, buffer, start) {
-    peer.address.split('.').forEach((e, j) => {
-      buffer[start+j] = +e
-    })
-    buffer.writeUint16BE(peer.port, 4)
-    return 2+4
-  },
-  decode: function (buffer, start) {
-    return {
-      address:
-        buffer[start]   + '.' +
-        buffer[start+1] + '.' +
-        buffer[start+2] + '.' +
-        buffer[start+3],
-      port: buffer.readUInt16BE(4),
-    }
-  },
-  bytes: 2+4
-}
-
-var Ipv4Peer = {
-  encode: function (peer, buffer, start) {
-    Ipv4.encode(peer, buffer, start)
-    if(peer.id)
-      buffer.write(peer.id, start+Ipv4.bytes, 'hex')
-    return Ipv4Peer.bytes+32
-  },
-  decode: function (buffer, start) {
-    var peer = Ipv4.decode(buffer, start)
-    peer.id = buffer.toString('hex', 6, 6+32)
-    return peer
-  },
-  bytes: Ipv4.bytes + 32
-}
-
 function interval (fn, time) {
   setInterval(fn, time).unref()
   fn()
 }
 
-function createDHT (socket, seeds, id) {
-
+function createDHT (socket, seeds, id, base_port) {
+  if(!base_port)
+    throw new Error('must provide a base port')
 //  var Ping = Buffer.from([PING])
 
   var Ping = Buffer.alloc(1+32)
@@ -157,6 +157,8 @@ function createDHT (socket, seeds, id) {
   var me, me2
   var dht = createBase(id, socket, {
     [TX_PING]: function(dht, buf, peer) {
+      if(port == 1999) dht.addPeer(peer)
+
       var res = Buffer.alloc(1+32+6)
       res[0] = RX_PING
       if(!peer.id)
@@ -172,6 +174,11 @@ function createDHT (socket, seeds, id) {
       peer.id = peer.id || buf.toString('hex', 1, 33)
       //receive what our ip:port looks like from the outside.
       var _me = Ipv4.decode(buf, 1+32)
+      //if _me.port != port then we must be natted
+      //but just because _me.port == port doesn't mean we are not natted.
+      //to know for sure we must be able to receive an unsolicited packet
+      //from another host.
+
       if(!me) me = _me
       peer.pinged = _me
       //record round trip time. (if it makes sense)
@@ -185,6 +192,8 @@ function createDHT (socket, seeds, id) {
       update()
     }, 
     [TX_PEERS]: function (dht, buf, peer) {
+      if(port == 1999) dht.addPeer(peer)
+ 
 //      console.error("TX_PEERS", dht.peers)
       var _peers = dht.peers.filter(function (p) {
         //don't send peer back to requesting peer
@@ -196,10 +205,12 @@ function createDHT (socket, seeds, id) {
       })
   //    if(!_peers.length)
   //      console.error('no peers to send')
-      var b = Buffer.alloc(1+(_peers.length*Ipv4Peer.bytes))
+      //respond with self (to include id + type), plus known peers
+      var b = Buffer.alloc(1+(_peers.length+1)*Ipv4Peer.bytes))
       b[0] = RX_PEERS
+      Ipv4Peer.encode(me, b, 1)
       _peers.forEach((peer, i) => {
-        Ipv4Peer.encode(peer, b, 1+i*6)
+        Ipv4Peer.encode(peer, b, 1+(1+i)*Ipv4Peer.bytes)
       })
       dht.send(b, peer)
     },
@@ -247,67 +258,10 @@ function createDHT (socket, seeds, id) {
   }, 10_000)
   
   function update () {
-    pretty(id, me, dht.peers)
+    console.log('\033[2J\033[H')
+    console.log(pretty(id, me, dht.peers))
   }
   interval(update, 5000)
 }
 
-function addr2String(p) {
-  return p.address+':'+p.port
-}
-function pretty (id, me, peers) {
-  var padding = [10, 20, -5, -5, -7, -6]
-
- // console.log('\033[2J\033[H')
-  console.log('My ip:', me ? addr2String(me) : 'unknown')
-  console.log('id:', id)
-  console.log('Time:'+new Date().toISOString())
-  console.log()
-
-  var ts = Date.now()
-  var table = peers.map(e => {
-    return [
-      e.id && e.id.substring(0, 8),
-      addr2String(e),
-      e.send.count,
-      e.recv.count,
-      e.rtt,
-      e.recv.ts ? niceAgo(ts, e.recv.ts) : 'na'
-    ]
-  })
- 
-  console.log(
-    [['Id', 'ip', 'Send', 'Recv', 'RTT', 'alive'], ...table]
-    .map(row => {
-      return row.map((e, i) => (
-        padding[i] < 0
-        ? (e||'').toString().padStart(padding[i] * -1, ' ')
-        : (e||'').toString().padEnd(padding[i], ' ')
-      )).join('')
-    }).join('\n')
-  )
-}
-
-if(!module.parent) {
-  var fs = require('fs')
-  var socket = require('./many').createSocket('udp4')
-  socket.on('listening', function () { socket.setBroadcast() })
-  var id = require('crypto').randomBytes(32).toString('hex')
-  var path = require('path')
-  var id_file = path.join(process.env.HOME, '.p2p_id')
-  try {
-    id = fs.readFileSync(id_file, 'utf8')
-  } catch (_) {
-    fs.writeFileSync(id_file, id, 'utf8')
-  }
-  var seeds = process.argv.slice(2).map(e => {
-    var [address, port] = e.split(':')
-    return {address, port: +port}
-  })
-  socket.bind(PORT)
- // setTimeout(function () {
- //   socket.setBroadcast(true)
- // }, 1000)
-  createDHT(socket, seeds, id)
-  
-}
+module.exports = createDHT
