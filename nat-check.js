@@ -46,9 +46,15 @@ function toAddress (addr) {
   return addr.address+':'+addr.port
 }
 
+function fromAddress (addr) {
+  var [address, port] = addr.split(':')
+  return {address, port: port || 3489}
+}
+
 function Server1 () {
   return function (send) {
     return function (msg, addr, port) {
+      console.log('received msg:', msg, 'from:'+toAddress(addr))
       send({type: 'pong', addr, from: 's1'}, addr, port)
     }
   }
@@ -59,7 +65,7 @@ function Server2 (server3_addr) {
     throw new Error('Server2 must be passed server3 ip')
   return function (send) {
     return function (msg, addr, port) {
-      send({type: 'bounce', addr}, {address: server3_addr, port: PORT}, port)
+      send({type: 'bounce', addr}, fromAddress(server3_addr), port)
       send({type: 'pong', addr, from: 's2'}, addr, port)
     }
   }
@@ -74,11 +80,11 @@ function Server3 () {
 }
 
 function Client (server1, server2, server3) {
-  var s1, s2, s3
+  var s1, s2, s3, timer
   return function (send) {
     var start = Date.now()
-    send({type:'ping'}, {address: server1, port: PORT}, PORT)
-    send({type:'ping'}, {address: server2, port: PORT}, PORT)
+    send({type:'ping'}, fromAddress(server1), PORT)
+    send({type:'ping'}, fromAddress(server2), PORT)
     setTimeout(function () {
       if(!(s1||s2||s3))
         console.log('received no replies! you may be offline')
@@ -86,44 +92,50 @@ function Client (server1, server2, server3) {
     }, 5_000)
 
     return function (msg, addr, port) {
-      if(addr.address === server1) {
+      var s = toAddress(addr)
+      if(s === server1) {
         console.log('server1 response in:',Date.now() - start)
         s1 = msg
       }
-      if(addr.address === server2) {
+      if(s === server2) {
         s2 = msg
         console.log('server2 response in:',Date.now() - start)
       }
-      if(addr.address === server3) {
+      if(s === server3) {
         s3 = msg
         console.log('server3 response in:',Date.now() - start)
       }
 
-      if(s1 && s2) {
-        if(s1.addr.address != s2.addr.address) {
-          console.log('different addresses! (should never happen)')
-          this.error = 'address mismatch'
-        }
-        if(s1.addr.port == s2.addr.port) {
-          console.log('easy nat', toAddress(s1.addr))
-          this.nat = 'easy'
+      clearTimeout(timer)
+      timer = setTimeout(function () {
+        if(s1 && s2 && !s3) {
+          if(s1.addr.address != s2.addr.address) {
+            console.log('different addresses! (should never happen)')
+            this.error = 'address mismatch'
+          }
+          if(s1.addr.port == s2.addr.port) {
+            console.log('easy nat', toAddress(s1.addr))
+            this.nat = 'easy'
 
-          console.log('\nto connect to this peer:\n')
-          console.log('> nat-check peer '+toAddress(s1.addr)+'    # from another easy nat peer')
-          console.log('> nat-check db_hard '+toAddress(s1.addr)+' # from a hard nat peer')
+            console.log('\nto connect to this peer:\n')
+            console.log('> nat-check peer '+toAddress(s1.addr)+'    # from another easy nat peer')
+            console.log('> nat-check db_hard '+toAddress(s1.addr)+' # from a hard nat peer')
+          }
+          else {
+            console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
+            this.nat = 'hard'
+            console.log('\n  to connect to this peer:\n')
+            console.log('> nat-check db_easy '+toAddress(s1.addr)+' # from another easy nat peer')
+            console.log('  unfortunately, you cannot connect to this peer from another hard nat peer')
+          }
         }
-        else {
-          console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
-          this.nat = 'hard'
+        else if(s3) {
+          console.log('you have a *static address* that any peer can connect to directly!')
           console.log('\n  to connect to this peer:\n')
-          console.log('> nat-check db_easy '+toAddress(s1.addr)+' # from another easy nat peer')
-          console.log('  unfortunately, you cannot connect to this peer from another hard nat peer')
+          console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
+          this.nat = 'static'
         }
-      }
-      if(s3) {
-        console.log('static address', s3.addr)
-        this.nat = 'static'
-      }
+      }, 300)
     }
   }
 }
@@ -253,7 +265,7 @@ function Timer(server1) {
 }
 
 if(!module.parent) {
-  var defaults = ['3.25.141.150','13.211.129.58','3.26.157.68']
+  var defaults = ['3.25.141.150:3489','13.211.129.58:3489','3.26.157.68:3489']
 
   var json = {
     encode: (obj) => Buffer.from(JSON.stringify(obj)),
