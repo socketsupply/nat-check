@@ -132,13 +132,23 @@ function Server3 () {
 function Client (server1, server2, server3) {
   var s1, s2, s3
   return function (send) {
+    var start = Date.now()
     send({type:'ping'}, {address: server1, port: PORT}, PORT)
     send({type:'ping'}, {address: server2, port: PORT}, PORT)
     return function (msg, addr, port) {
-      if(addr.address === server1) s1 = msg
-      if(addr.address === server2) s2 = msg
-      if(addr.address === server3) s3 = msg
-      console.log({s1, s2, s3}, {msg, addr}) 
+      if(addr.address === server1) {
+        console.log('server1 response in:',Date.now() - start)
+        s1 = msg
+      }
+      if(addr.address === server2) {
+        s2 = msg
+        console.log('server1 response in:',Date.now() - start)
+      }
+      if(addr.address === server3) {
+        s3 = msg
+        console.log('server3 response in:',Date.now() - start)
+      }
+
       if(s1 && s2) {
         if(s1.addr.address != s2.addr.address) {
           console.log('different addresses! (should never happen)')
@@ -174,6 +184,49 @@ function Peer (remote, message) {
   }
 }
 
+function random_port (ports) {
+  var r
+  while(ports[r = ~~(Math.random()*0xffff)]);
+  ports[r] = true
+  return r
+}
+
+//easy side
+function BirthdayEasy (remote, message) {
+  var [address, port] = remote.split(':')
+  var ports = {}
+  return function (send) {
+    //send to ports until 
+    var int = setInterval(function () {
+      var p = random_port(ports)
+      console.log('bdhp->:', address+":"+p)
+      send({type:'hello', ts: Date.now(), msg: message}, {address: address, port: p}, PORT)
+    }, 10)
+    return function (msg, addr, port) {
+      console.log('received:', msg)
+      clearInterval(int)
+      send({type: "echo", addr, msg: message}, addr, port)
+    }
+  } 
+}
+
+//hard side
+function BirthdayHard (remote, message) {
+  var [address, port] = remote.split(':')
+  var ports = {}
+  return function (send) {
+    for(var i = 0; i < 256; i++) {
+      var p = random_port(ports)
+      console.log('bdhp-<:', address+":"+p)
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, p)
+    }
+    return function (msg, addr, port) {
+      console.log('received:', msg)
+      send({type: "echo", addr, msg: message}, addr, port)
+    }
+  }  
+}
+
 module.exports = {Server1, Server2, Server3, Client}
 var dgram = require('dgram')
 
@@ -187,6 +240,10 @@ function wrap (fn, ports, codec) {
       .bind(p)
       .on('message', (data, addr) => {
         onMessage(codec.decode(data), addr, p)
+      })
+      .on('error', (err) => {
+        if(err.code === 'EACCES')
+          console.log("could not bind port:"+err.port)
       })
   }
 
@@ -221,7 +278,16 @@ if(!module.parent) {
       console.error('usage: nat-check peer {remote ip:port}')
       process.exit(1)
     }
-    wrap(Peer(options[0]), [PORT], json)
+    wrap(Peer(options[0], options[1]), [PORT], json)
+  }
+  else if(cmd === 'bd_easy') {
+    wrap(BirthdayEasy(options[0], options[1]), [PORT], json)
+
+  }
+  else if(cmd === 'bd_hard') {
+    wrap(BirthdayHard(options[0], options[1]), [PORT], json)
+
+
   }
   else console.log('usage: nat-check client|server1|server2 <server3_ip>|server3')
 
