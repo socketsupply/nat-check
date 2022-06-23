@@ -140,7 +140,7 @@ function BirthdayEasy (remote, message) {
     var i = 1
     var int = setInterval(() => {
       var p = random_port(ports)
-      console.log('bdhp->:', address+":"+p)
+      console.log('bdhp->:', address+":"+p, i)
       send({type:'hello', ts: Date.now(), msg: message, count: i++}, {address: address, port: p}, PORT)
     }, 10)
     return function (msg, addr, port) {
@@ -164,8 +164,9 @@ function BirthdayHard (remote, message) {
   var first = true
   return function (send) {
     for(var i = 0; i < 256; i++) {
-      console.log('bdhp-<:', address+":0")
-      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, 0)
+      var p = random_port(ports)
+      console.log('bdhp-<:', address+":"+p, i)
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, p)
     }
     return function (msg, addr, port) {
       if(first) {
