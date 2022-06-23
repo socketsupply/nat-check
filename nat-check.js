@@ -142,7 +142,7 @@ function Client (server1, server2, server3) {
       }
       if(addr.address === server2) {
         s2 = msg
-        console.log('server1 response in:',Date.now() - start)
+        console.log('server2 response in:',Date.now() - start)
       }
       if(addr.address === server3) {
         s3 = msg
