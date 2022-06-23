@@ -5,94 +5,34 @@
 
 "Peer-to-Peer Communication Across Network Address Translators" (Ford 2005)
 
-6 Evaluation of Existing NATs
-
-To evaluate the robustness of the TCP and UDP hole
-punching techniques described in this paper on a variety
-of existing NATs, we implemented and distributed a test
-program called NAT Check [16], and solicited data from
-Internet users about their NATs.
-NAT Check’s primary purpose is to test NATs for the
-two behavioral properties most crucial to reliable UDP
-and TCP hole punching: namely, consistent identity-
-preserving endpoint translation (Section 5.1), and silently
-dropping unsolicited incoming TCP SYNs instead of re-
-jecting them with RSTs or ICMP errors (Section 5.2). In
-addition, NAT Check separately tests whether the NAT
-supports hairpin translation (Section 5.4), and whether the
-NAT filters unsolicited incoming traffic at all. This last
-property does not affect hole punching, but provides a use-
-ful indication the NAT’s firewall policy.
-NAT Check makes no attempt to test every relevant
-facet of NAT behavior individually: a wide variety of sub-
-tle behavioral differences are known, some of which are
-difficult to test reliably [12]. Instead, NAT Check merely
-attempts to answer the question, “how commonly can the
-proposed hole punching techniques be expected to work
-on deployed NATs, under typical network conditions?”
-
-6.1 Test Method
-
-NAT Check consists of a client program to be run on a ma-
-chine behind the NAT to be tested, and three well-known
-servers at different global IP addresses. The client coop-
-erates with the three servers to check the NAT behavior
-relevant to both TCP and UDP hole punching. The client
-Figure 8: NAT Check Test Method for UDP
-program is small and relatively portable, currently run-
-ning on Windows, Linux, BSD, and Mac OS X. The ma-
-chines hosting the well-known servers all run FreeBSD.
-
-6.1.1 UDP Test
-To test the NAT’s behavior for UDP, the client opens a
-socket and binds it to a local UDP port, then successively
-sends “ping”-like requests to servers 1 and 2, as shown
-in Figure 8. These servers each respond to the client’s
-pings with a reply that includes the client’s public UDP
-endpoint: the client’s own IP address and UDP port num-
-ber as observed by the server. If the two servers report the
-same public endpoint for the client, NAT Check assumes
-that the NAT properly preserves the identity of the client’s
-private endpoint, satisfying the primary precondition for
-reliable UDP hole punching.
-When server 2 receives a UDP request from the client,
-besides replying directly to the client it also forwards the
-request to server 3, which in turn replies to the client from
-its own IP address. If the NAT’s firewall properly fil-
-ters “unsolicited” incoming traffic on a per-session basis,
-then the client never sees these replies from server 3, even
-though they are directed at the same public port as the
-replies from servers 1 and 2.
-To test the NAT for hairpin translation support, the
-client simply opens a second UDP socket at a different lo-
-cal port and uses it to send messages to the public endpoint
-representing the client’s first UDP socket, as reported by
-server 2. If these messages reach the client’s first private
-endpoint, then the NAT supports hairpin translation
-
----
+(see section 6 - 6.1.1)
 
 NAT Check tests NATs for reliable UDP behavior
 // /and TCP hole punching: consistent endpoint translation,
 // and silently dropping unsolicited incoming TCP SYNs
 
 NAT Check is a client program behind the NAT, 
-servers at different global IP addresses.
+and 3 servers at different global IP addresses.
 
-To test the NAT’s behavior for UDP, the client opens a
-socket and binds it to a local UDP port, then successively
-sends “ping”-like requests to servers 1 and 2
+To test the NAT’s behavior for UDP, the client sends pings to servers 1 and 2
 
 servers 1 & 2 each reply with the client’s public UDP
 ip and port.
 
 If the two servers report the same public endpoint for the client,
-Then the NAT preserves the identy of the client's private endpoint,
+Then the client is on an "easy nat",
+The NAT preserves the identy of the client's private endpoint,
 so holepunching should be easy.
+
+If the two responses return different ip addresses it's considered
+a "hard nat".
 
 Server 2 also forwards a message to server 3 which replies
 to the client. If the client receives this message,
 then the NAT does not filter "unsolicited" incoming traffic.
+
+If the client is able to receive the message from the 3rd server then it's got a statically open firewall
+and so can receive direct connections
 
 If the client has the same port in the responses from 1 and 2
 then it's easy nat. if it receives the message from 3 it's semistatic.
@@ -194,18 +134,25 @@ function random_port (ports) {
 //easy side
 function BirthdayEasy (remote, message) {
   var [address, port] = remote.split(':')
-  var ports = {}
+  var ports = {}, first = true
   return function (send) {
     //send to ports until 
-    var int = setInterval(function () {
+    var i = 1
+    var int = setInterval(() => {
       var p = random_port(ports)
       console.log('bdhp->:', address+":"+p)
-      send({type:'hello', ts: Date.now(), msg: message}, {address: address, port: p}, PORT)
+      send({type:'hello', ts: Date.now(), msg: message, count: i++}, {address: address, port: p}, PORT)
     }, 10)
     return function (msg, addr, port) {
-      console.log('received:', msg)
+      if(first) {
+        first = false
+        console.log("successfully holepunched!", port+'->'+addr.address+':'+addr.port, 'after:'+msg.count+' attempts')
+      }
+      console.log('received:', msg, 'from:'+port+'->'+addr.address+':'+addr.port)
       clearInterval(int)
-      send({type: "echo", addr, msg: message}, addr, port)
+      setTimeout(() => {
+        send({type: "echo", addr, msg: message, count: msg.count}, addr, port)
+      }, 1000)
     }
   } 
 }
@@ -214,15 +161,19 @@ function BirthdayEasy (remote, message) {
 function BirthdayHard (remote, message) {
   var [address, port] = remote.split(':')
   var ports = {}
+  var first = true
   return function (send) {
     for(var i = 0; i < 256; i++) {
-      var p = random_port(ports)
-      console.log('bdhp-<:', address+":"+p)
-      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, p)
+      console.log('bdhp-<:', address+":0")
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, 0)
     }
     return function (msg, addr, port) {
-      console.log('received:', msg)
-      send({type: "echo", addr, msg: message}, addr, port)
+      if(first) {
+        first = false
+        console.log("successfully holepunched!", port+'->'+addr.address+':'+addr.port)
+      }
+      console.log('received:', msg, 'from:'+addr.address+':'+addr.port)
+      send({type: "echo", addr, msg: message, ts: Date.now(), count: (msg.count | 0) + 1}, addr, port)
     }
   }  
 }
@@ -249,7 +200,6 @@ function wrap (fn, ports, codec) {
 
   ports.forEach(bind)
   onMessage = fn(function (msg, addr, from) {
-    //console.log('SEND', codec.encode(msg), addr, from)
     bind(from).send(codec.encode(msg), addr.port, addr.address)
   })
 }
@@ -286,8 +236,6 @@ if(!module.parent) {
   }
   else if(cmd === 'bd_hard') {
     wrap(BirthdayHard(options[0], options[1]), [PORT], json)
-
-
   }
   else console.log('usage: nat-check client|server1|server2 <server3_ip>|server3')
 
