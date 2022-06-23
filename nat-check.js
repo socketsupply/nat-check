@@ -42,6 +42,10 @@ if 1 and 2 have different ports it's a hard nat.
 
 var PORT = 3489
 
+function toAddress (addr) {
+  return addr.address+':'+addr.port
+}
+
 function Server1 () {
   return function (send) {
     return function (msg, addr, port) {
@@ -75,6 +79,12 @@ function Client (server1, server2, server3) {
     var start = Date.now()
     send({type:'ping'}, {address: server1, port: PORT}, PORT)
     send({type:'ping'}, {address: server2, port: PORT}, PORT)
+    setTimeout(function () {
+      if(!(s1||s2||s3))
+        console.log('received no replies! you may be offline')
+      process.exit(0)
+    }, 5_000)
+
     return function (msg, addr, port) {
       if(addr.address === server1) {
         console.log('server1 response in:',Date.now() - start)
@@ -95,12 +105,19 @@ function Client (server1, server2, server3) {
           this.error = 'address mismatch'
         }
         if(s1.addr.port == s2.addr.port) {
-          console.log('easy nat', s1.addr.address+':'+s1.addr.port)
+          console.log('easy nat', toAddress(s1.addr))
           this.nat = 'easy'
+
+          console.log('\nto connect to this peer:\n')
+          console.log('> nat-check peer '+toAddress(s1.addr)+'    # from another easy nat peer')
+          console.log('> nat-check db_hard '+toAddress(s1.addr)+' # from a hard nat peer')
         }
         else {
           console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
           this.nat = 'hard'
+          console.log('\n  to connect to this peer:\n')
+          console.log('> nat-check db_easy '+toAddress(s1.addr)+' # from another easy nat peer')
+          console.log('  unfortunately, you cannot connect to this peer from another hard nat peer')
         }
       }
       if(s3) {
@@ -119,7 +136,7 @@ function Peer (remote, message) {
       send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, PORT)
     }, 1000)
     return function (msg, addr, port) {
-      console.log('received:', msg)
+      console.log('received:', msg, 'from:'+toAddress(addr))
     }
   }
 }
@@ -135,26 +152,36 @@ function random_port (ports) {
 function BirthdayEasy (remote, message) {
   var [address, port] = remote.split(':')
   var ports = {}, first = true
+  var timer
   return function (send) {
     //send to ports until 
     var i = 1
     var int = setInterval(() => {
-      var p = random_port(ports)
-      console.log('bdhp->:', address+":"+p, i)
-      send({type:'hello', ts: Date.now(), msg: message, count: i++}, {address: address, port: p}, PORT)
+      var port = random_port(ports)
+      console.log('bdhp->:', toAddres({address, port}))
+      send({type:'hello', ts: Date.now(), msg: message, count: i++}, {address, port}, PORT)
     }, 10)
     return function (msg, addr, port) {
       if(first) {
         first = false
-        console.log("successfully holepunched!", port+'->'+addr.address+':'+addr.port, 'after:'+msg.count+' attempts')
+        console.log("successfully holepunched!", port+'->'+toAddress(addr), 'after:'+msg.count+' attempts')
       }
-      console.log('received:', msg, 'from:'+port+'->'+addr.address+':'+addr.port)
+      console.log('received:', msg, 'from:'+port+'->'+toAddress(addr))
       clearInterval(int)
-      setTimeout(() => {
-        send({type: "echo", addr, msg: message, count: msg.count}, addr, port)
-      }, 1000)
+
+      timer = resend(timer, send, {type: "echo", addr, msg: message, count: msg.count}, addr, port)
     }
   } 
+}
+
+//a send function that will retransmit the message if the returned timer is not cleared
+function resender(timer, send, msg, addr, port) {
+  clearTimeout(timer)
+  send(msg, addr, port)
+  return setTimeout(() => {
+    send(msg, addr, port)
+  }, 2_000)
+
 }
 
 //hard side
@@ -162,24 +189,26 @@ function BirthdayHard (remote, message) {
   var [address, port] = remote.split(':')
   var ports = {}
   var first = true
+  var timer
   return function (send) {
     for(var i = 0; i < 256; i++) {
       var p = random_port(ports)
       console.log('bdhp-<:', address+":"+p, i)
       send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, p)
     }
+
     return function (msg, addr, port) {
       if(first) {
         first = false
-        console.log("successfully holepunched!", port+'->'+addr.address+':'+addr.port)
+        console.log("successfully holepunched!", port+'->'+toAddress(addr))
       }
-      console.log('received:', msg, 'from:'+addr.address+':'+addr.port)
-      send({type: "echo", addr, msg: message, ts: Date.now(), count: (msg.count | 0) + 1}, addr, port)
+      console.log('received:', msg, 'from:'+toAddress(addr))
+      timer = resend(timer, send, {type: "echo", addr, msg: message, ts: Date.now(), count: (msg.count | 0) + 1}, addr, port)
     }
   }  
 }
 
-module.exports = {Server1, Server2, Server3, Client}
+module.exports = {Server1, Server2, Server3, Client, BirthdayEasy, BirthdayHard}
 var dgram = require('dgram')
 
 function wrap (fn, ports, codec) {
@@ -205,6 +234,24 @@ function wrap (fn, ports, codec) {
   })
 }
 
+function Timer(server1) {
+  var delay = 5_000, step = 10_000
+  var port = 0, ts = Date.now()
+  return function (send) {
+    function ping () {
+      send({type:"ping"}, {address: server1, port: PORT}, PORT)
+    }
+    ping()
+    return function (msg) {
+      console.log('port', port != msg.addr.port ? 'changed' : 'did not change', port, '->', msg.addr.port, 'after', (Date.now()-ts)/1_000, 'seconds')
+      ts = Date.now()
+      port = msg.addr.port
+      setTimeout(ping, delay+=step)
+
+    }
+  }
+}
+
 if(!module.parent) {
   var defaults = ['3.25.141.150','13.211.129.58','3.26.157.68']
 
@@ -213,31 +260,24 @@ if(!module.parent) {
     decode: (buf) => JSON.parse(buf.toString())
   }
 
+  function run(fn) {
+    wrap(fn, [PORT], json)
+  }
+
   var cmd = process.argv[2]
   var options = process.argv.slice(3)
-  if(cmd === 'server1') wrap(Server1(), [PORT], json)
-  else if(cmd === 'server2') wrap(Server2(options[0] || defaults[1]), [PORT], json)
-  else if(cmd === 'server3') wrap(Server3(), [PORT], json)
-  else if(cmd === 'client') {
-    wrap(Client(...(options.length ? options : defaults)), [PORT], json)
-    setTimeout(function () {
-      process.exit(0)
-    }, 5_000)
+  if(cmd === 'server1')      run(Server1())
+  else if(cmd === 'server2') run(Server2(options[0] || defaults[1]))
+  else if(cmd === 'server3') run(Server3())
+  else if(cmd === 'client'
+       || cmd == 'check')    run(Client(...(options.length ? options : defaults)))
+  else if(cmd === 'timer')   run(Timer(options[0] || defaults[0]))
+  else if(/$(db_.*)|(peer)/.test(cmd)) {
+    if(!options[0])
+      console.log('usage: nat-check '+cmd+' {remote ip:port} {message}')
+    else if(cmd === 'bd_easy') run(BirthdayEasy(options[0], options[1]))
+    else if(cmd === 'bd_hard') run(BirthdayHard(options[0], options[1]))
+    else if(cmd === 'peer')    run(Peer(options[0], options[1]))
   }
-  else if(cmd === 'peer') {
-    if(!options[0]) {
-      console.error('usage: nat-check peer {remote ip:port}')
-      process.exit(1)
-    }
-    wrap(Peer(options[0], options[1]), [PORT], json)
-  }
-  else if(cmd === 'bd_easy') {
-    wrap(BirthdayEasy(options[0], options[1]), [PORT], json)
-
-  }
-  else if(cmd === 'bd_hard') {
-    wrap(BirthdayHard(options[0], options[1]), [PORT], json)
-  }
-  else console.log('usage: nat-check client|server1|server2 <server3_ip>|server3')
-
+  else console.log('usage: nat-check check|server1|server2 <server3_ip>|server3|bd_easy|bd_hard|timer')
 }
