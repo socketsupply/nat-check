@@ -377,8 +377,13 @@ test('one side dependent nat requires birthday paradox', function (t) {
   }))
 
   var nat_A, nat_B, received_a = [], received_b = []
-  network.add(B, nat_B = new DependentNat('b.b.')) //AKA Symmetric NAT
-  network.add(A, nat_A = new IndependentFirewallNat('a.a.'))
+  if(true) {
+    network.add(B, nat_B = new DependentNat('b.b.')) //AKA Symmetric NAT the hard side
+    network.add(A, nat_A = new IndependentFirewallNat('a.a.')) //the easy side
+  } else {
+    network.add(B, nat_B = new IndependentFirewallNat('b.b.')) //AKA Symmetric NAT the hard side
+    network.add(A, nat_A = new DependentNat('a.a.')) //the easy side
+  }
   //nat.subnet = subnetwork
 
   nat_A.add(a, node_a = new Node((send) => (msg, addr, port) => {
@@ -416,6 +421,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
   //B (Endpoint Dependant / Symmetrical Nat) opens 256 ports
   var rand_port = create_rand_port()
   for(var i = 0; i < N; i++) {
+    //B the hard side opens 256 ports
     node_b.send.push({msg: "B-(hb:holepunch)->A", addr: {address: A, port: echo_a.msg.port}, port: rand_port()}) 
   }
 
@@ -427,6 +433,7 @@ test('one side dependent nat requires birthday paradox', function (t) {
   var tries = 0
   while(!received_b.length) {
     for(var i = 0; i < N; i++) {
+      //the easy side sends messages to random ports
       node_a.send.push({msg: "B-(hb:holepunch)->A", addr: {address: B, port: rand_port()}, port: 10}) 
     }
     //console.log("ITERATE")
