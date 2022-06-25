@@ -211,7 +211,7 @@ function Timer(server1) {
   var port = 0, ts = Date.now()
   return function (send) {
     function ping () {
-      send({type:"ping"}, {address: server1, port: PORT}, PORT)
+      send({type:"ping"}, fromAddress(server1), PORT)
     }
     ping()
     return function (msg) {
