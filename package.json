@@ -1,19 +1,15 @@
 {
-  "name": "p2p-supercollider",
-  "version": "1.0.33",
+  "name": "nat-check",
+  "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/nat-check.js"
   },
   "author": "",
   "license": "ISC",
-  "bin": {
-    "p2p-supercollider": "./cmd.js",
-    "nat-check": "./nat-check.js"
-  },
+  "bin": "./index.js",
   "dependencies": {
-    "nice-ago": "^1.0.1"
   },
   "devDependencies": {
     "tape": "^5.5.3"
