@@ -1,7 +1,7 @@
 var test = require('tape')
 
 
-var {Node, Network, IndependentNat, IndependentFirewallNat, DependentNat} = require('netsim')
+var {Node, Network, IndependentNat, IndependentFirewallNat, DependentNat} = require('@socketsupply/netsim')
 var nc = require('../')
 
 
