@@ -12,6 +12,7 @@
   "dependencies": {
   },
   "devDependencies": {
+    "@socketsupply/netsim": "^1.0.0",
     "tape": "^5.5.3"
   }
 }
