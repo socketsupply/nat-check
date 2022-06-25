@@ -1,267 +1,309 @@
 #! /bin/env node
 
-//Endpoint Independent Mapping - same host, same port, if from same port
-//Endpoint Dependent Mapping - messages from the same port mapped through different ports for different host:port combinations
-//static
+/*
+  an implementation of the NAT-check program described in the paper:
 
-// types of nattedness
-//   - nonat / static. ip is reachable from everywhere
-//   - semistatic - static ip but no uptime promise
-//   - endpoint independent 
-//   - endpoint dependent
+"Peer-to-Peer Communication Across Network Address Translators" (Ford 2005)
 
-// upnp can sometimes be used to create a semistatic ip address, that keeps the same
-// outside address open.
+(see section 6 - 6.1.1)
 
-//use a default port so that local multicast works
-var PORT = 1999
+NAT Check tests NATs for reliable UDP behavior
+// /and TCP hole punching: consistent endpoint translation,
+// and silently dropping unsolicited incoming TCP SYNs
 
-var niceAgo = require('nice-ago')
-var os = require('os')
+NAT Check is a client program behind the NAT, 
+and 3 servers at different global IP addresses.
 
-var {Ipv4, Ipv4Peer} = require('./codec')
-var {pretty, addr2String} = require('./util')
+To test the NAT’s behavior for UDP, the client sends pings to servers 1 and 2
 
-//a peer has a unique id
-//and can have multiple addresses
+servers 1 & 2 each reply with the client’s public UDP
+ip and port.
 
-// or should the model be about addresses not peers?
-// if the address responds, it can have an id.
-// if you have two addresses with the same id,
-// only send messages to one of those.
+If the two servers report the same public endpoint for the client,
+Then the client is on an "easy nat",
+The NAT preserves the identy of the client's private endpoint,
+so holepunching should be easy.
 
-// but given several addresses for a peer how do we decide which
-// we should send to?
+If the two responses return different ip addresses it's considered
+a "hard nat".
 
-// hmm for multiple ports behind a nat it also matters which port we send _FROM_
-// we need to send to an address that we have received packets from.
+Server 2 also forwards a message to server 3 which replies
+to the client. If the client receives this message,
+then the NAT does not filter "unsolicited" incoming traffic.
 
-function Peer (addr) {
-  return {
-    address: addr.address,
-//    addresss: []
-    port: addr.port,
-    id: addr.id,
-    type: 0, //0=unknown, 1=static, 2=semistatic, 4=independent, 8=dependant
-    recv: {ts: 0, count: 0},
-    send: {ts: 0, count: 0},
-    rtt: -1,
-    from: []
-  }
+If the client is able to receive the message from the 3rd server then it's got a statically open firewall
+and so can receive direct connections
+
+If the client has the same port in the responses from 1 and 2
+then it's easy nat. if it receives the message from 3 it's semistatic.
+if 1 and 2 have different ports it's a hard nat.
+
+*/
+
+var PORT = 3489
+
+function toAddress (addr) {
+  return addr.address+':'+addr.port
 }
 
-function my_addresses() {
-  var addrs = {}
-  var ints = os.networkInterfaces()
-  for(var int in ints)
-    ints[int].forEach(v => addrs[v.address] = true)
-  return addrs
+function fromAddress (addr) {
+  if('object' === typeof addr) return addr
+  var [address, port] = addr.split(':')
+  return {address, port: port || 3489}
 }
 
-function getPeer (peers, info) {
-  for(var i = 0; i < peers.length; i++)
-    if(peers[i].address == info.address && peers[i].port === info.port)
-      return peers[i]
-  return null
-}
-
-function getOrAddPeer(peers, info) {
-  var p = getPeer(peers, info)
-  if(p) return p
-  else p = Peer(info)
-  //we might have first got the peer by a ping or something that didn't send
-  //these details, so if we have these now, update them.
-  p.type = p.type || info.type
-  p.id = p.id || info.id
-
-  peers.push(p)
-  return p
-}
-
-function isSelf(peer) {
-  if(!peer) return false
-  if(peer.address == '0.0.0.0') return true
-  if(peer.address == '127.0.0.1') return true
-  if(my_addresses()[peer.address]) return true
-  return false
-}
-
-function createBase (id, socket, handlers) {
-  var peers = []
-  var dht = {
-    send (msg, peer) {
-      if(isSelf(peer)) return
-      if(peer.id == id) return //do not send to self
-      if(peer.send) {
-        peer.send.ts = Date.now()
-        peer.send.count ++
-      }
-      socket.send(msg, peer.port, peer.address)
-    },
-    broadcast (msg) {
-      peers.forEach(p => this.send(msg, p))
-    },
-    broadcastMap (fn) {
-      peers.forEach(p => { var msg = fn(p); if(msg) this.send(msg, p) })
-    },
-    getPeer: function (info) {
-      return getPeer(peers, info)      
-    },
-    addPeer: function (info) {
-      return addOrGetPeer(peers, info)
-    },
-    peers
-  }
-
-  socket.on('message', function (buf, rinfo, port) {
-    if(isSelf(rinfo)) return
-    var type = buf[0]
-    var handler = handlers[type]
-    if('function' === typeof handler) {
-      handler(dht, buf, rinfo, port)
-      var peer = getPeer(peers, rinfo)
-      if(peer) {
-        peer.recv.count ++
-        peer.recv.ts = Date.now()
-      }
+function Server1 () {
+  return function (send) {
+    return function (msg, addr, port) {
+      console.log('received msg:', msg, 'from:'+toAddress(addr))
+      send({type: 'pong', addr, from: 's1'}, addr, port)
     }
-    else
-      console.log('unknown message type:', type)
-  })
-
-  return dht
-
-}
-
-var TX_PING  = 0x12,
-    RX_PING  = 0x13,
-    TX_PEERS = 0x22,
-    RX_PEERS = 0x23,
-    TX_FORWARD = 0x32
- 
-function interval (fn, time) {
-  setInterval(fn, time).unref()
-  fn()
-}
-
-function createDHT (socket, seeds, id, base_port) {
-  if(!base_port)
-    throw new Error('must provide a base port')
-//  var Ping = Buffer.from([PING])
-
-  var Ping = Buffer.alloc(1+32)
-  Ping[0] = TX_PING
-  Ping.write(id, 1, 'hex')
-
-//  var socket = dgram.createSocket('udp4')
-  var me, me2
-  var dht = createBase(id, socket, {
-    [TX_PING]: function(dht, buf, peer) {
-      if(port == 1999) dht.addPeer(peer)
-
-      var res = Buffer.alloc(1+32+6)
-      res[0] = RX_PING
-      if(!peer.id)
-        peer.id = buf.toString('hex', 1, 33)
-      //write our own id into the buffer
-      res.write(id, 1, 'hex')
-      //write the ip:port of the peer we received from
-      Ipv4.encode(peer, res, 1+32)
-      dht.send(res, peer)
-    },
-    [RX_PING]: function (dht, buf, peer) {
-      //receive pong isn't important
-      peer.id = peer.id || buf.toString('hex', 1, 33)
-      //receive what our ip:port looks like from the outside.
-      var _me = Ipv4.decode(buf, 1+32)
-      //if _me.port != port then we must be natted
-      //but just because _me.port == port doesn't mean we are not natted.
-      //to know for sure we must be able to receive an unsolicited packet
-      //from another host.
-
-      if(!me) me = _me
-      peer.pinged = _me
-      //record round trip time. (if it makes sense)
-      if(peer.send.ts < peer.recv.ts) {
-        peer.rtt = peer.recv.ts - peer.send.ts
-      }
-
-      if(!(me.port == _me.port && me.address == _me.address))
-        console.error("NAT PROBLEM", me, _me)
-
-      update()
-    }, 
-    [TX_PEERS]: function (dht, buf, peer) {
-      if(port == 1999) dht.addPeer(peer)
- 
-//      console.error("TX_PEERS", dht.peers)
-      var _peers = dht.peers.filter(function (p) {
-        //don't send peer back to requesting peer
-        if(p === peer) return
-        //don't seed peer that hasn't been heard from in 3 minutes 
-        if(p.recv.ts + 3*60_000 < Date.now())
-          return
-        return true
-      })
-  //    if(!_peers.length)
-  //      console.error('no peers to send')
-      //respond with self (to include id + type), plus known peers
-      var b = Buffer.alloc(1+(_peers.length+1)*Ipv4Peer.bytes))
-      b[0] = RX_PEERS
-      Ipv4Peer.encode(me, b, 1)
-      _peers.forEach((peer, i) => {
-        Ipv4Peer.encode(peer, b, 1+(1+i)*Ipv4Peer.bytes)
-      })
-      dht.send(b, peer)
-    },
-    [RX_PEERS]: function (dht, buf, peer) {
-      var start = 1
-      for(var start = 1; start + Ipv4Peer.bytes <= buf.length; start += Ipv4Peer.bytes) {
-        var new_peer = Ipv4.decode(buf, start)
-        var p = getOrAddPeer(dht.peers, new_peer)
-        //console.error("NP", new_peer)
-        if(~p.from.indexOf(peer))
-          p.from.push(peer)
-       //try to ping new peer, but not if we already pinged them within 30 seconds
-        if(!p.recv.ts && p.send.ts + 30_000 > Date.now())
-          dht.send(Ping, p)
-      }
-      update()
-
-    },
-    //forwarding is used for holepunching
-    [TX_FORWARD]: function (dht, buf, peer) {
-      var next_peer = Ipv4.decode(buf, 1)
-      dht.send(buf.slice(1+Ipv4.bytes), next_peer)
-    }
-  })
-
-  seeds.forEach(function (p) {
-    getOrAddPeer(dht.peers, p)    
-  })
-
-  //ping active peers every 30 seconds
-  //active peers means we have received from them within 2 minutes
-  interval(() => {
-    dht.broadcastMap((peer) => {
-//      if(peer.recv.ts + 2*60_000 < Date.now())
-        return Ping
-    })
-    dht.send(Ping, {address:'255.255.255.255', port: PORT})
-  }, 10_000)
-
-  interval(() => {
-    dht.broadcastMap((peer) => {
-   //   if(peer.recv.ts + 2*60_000 < Date.now())
-        return Buffer.from([TX_PEERS])
-    })
-  }, 10_000)
-  
-  function update () {
-    console.log('\033[2J\033[H')
-    console.log(pretty(id, me, dht.peers))
   }
-  interval(update, 5000)
 }
 
-module.exports = createDHT
+function Server2 (server3_addr) {
+  if(!server3_addr)
+    throw new Error('Server2 must be passed server3 ip')
+  //server3_addr = Address(server3_addr)
+  return function (send) {
+    return function (msg, addr, port) {
+      send({type: 'bounce', addr}, fromAddress(server3_addr), port)
+      send({type: 'pong', addr, from: 's2'}, addr, port)
+    }
+  }
+}
+
+function Server3 () {
+  return function (send) {
+    return function (msg, addr, port) {
+      console.log("SERVER3", msg)
+      send({type: 'bounce', from: 's3'}, msg.addr, port)
+    }
+  }
+}
+
+function Client (server1, server2, server3, isCommand) {
+  var s1, s2, s3, timer
+  return function (send) {
+    var start = Date.now()
+    send({type:'ping'}, fromAddress(server1), PORT)
+    send({type:'ping'}, fromAddress(server2), PORT)
+    if(isCommand)
+      setTimeout(function () {
+        if(!(s1||s2||s3))
+          console.log('received no replies! you may be offline')
+        process.exit(0)
+      }, 5_000)
+
+    return function (msg, addr, port) {
+      var s = toAddress(addr)
+      if(s === server1) {
+        console.log('server1 response in:',Date.now() - start)
+        s1 = msg
+      }
+      if(s === server2) {
+        s2 = msg
+        console.log('server2 response in:',Date.now() - start)
+      }
+      if(s === server3) {
+        s3 = msg
+        console.log('server3 response in:',Date.now() - start)
+      }
+
+      console.log("RECEIVE", msg)
+
+      //clearTimeout(timer)
+      //timer = setTimeout(() => {
+      var output = () => {
+        if(s1 && s2 && !s3) {
+          if(s1.addr.address != s2.addr.address) {
+            console.log('different addresses! (should never happen)')
+            this.error = 'address mismatch'
+          }
+          if(s1.addr.port == s2.addr.port) {
+            console.log('easy nat', toAddress(s1.addr))
+            this.nat = 'easy'
+
+            console.log('\nto connect to this peer:\n')
+            console.log('> nat-check peer '+toAddress(s1.addr)+'    # from another easy nat peer')
+            console.log('> nat-check db_hard '+toAddress(s1.addr)+' # from a hard nat peer')
+          }
+          else {
+            console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
+            this.nat = 'hard'
+            console.log('\n  to connect to this peer:\n')
+            console.log('> nat-check db_easy '+toAddress(s1.addr)+' # from another easy nat peer')
+            console.log('  unfortunately, you cannot connect to this peer from another hard nat peer')
+          }
+        }
+        else if(s3) {
+          console.log('you have a *static address* that any peer can connect to directly!')
+          console.log('\n  to connect to this peer:\n')
+          console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
+          this.nat = 'static'
+        }
+      }
+      if(isCommand) {
+        clearTimeout(timer)
+        setTimeout(output, 300)
+      }
+      else
+        output()
+      //}, 300)
+    }
+  }
+}
+
+function Peer (remote, message) {
+  var [address, port] = remote.split(':')
+  return function (send) {
+    setInterval(()=> {
+      console.log('send...', remote)
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, PORT)
+    }, 1000)
+    return function (msg, addr, port) {
+      console.log('received:', msg, 'from:'+toAddress(addr))
+    }
+  }
+}
+
+function random_port (ports) {
+  var r
+  while(ports[r = ~~(Math.random()*0xffff)]);
+  ports[r] = true
+  return r
+}
+
+//easy side
+function BirthdayEasy (remote, message) {
+  var [address, port] = remote.split(':')
+  var ports = {}, first = true
+  var timer
+  return function (send) {
+    //send to ports until 
+    var i = 1
+    var int = setInterval(() => {
+      var port = random_port(ports)
+      console.log('bdhp->:', toAddres({address, port}))
+      send({type:'hello', ts: Date.now(), msg: message, count: i++}, {address, port}, PORT)
+    }, 10)
+    return function (msg, addr, port) {
+      if(first) {
+        first = false
+        console.log("successfully holepunched!", port+'->'+toAddress(addr), 'after:'+msg.count+' attempts')
+      }
+      console.log('received:', msg, 'from:'+port+'->'+toAddress(addr))
+      clearInterval(int)
+
+      timer = resend(timer, send, {type: "echo", addr, msg: message, count: msg.count}, addr, port)
+    }
+  } 
+}
+
+//a send function that will retransmit the message if the returned timer is not cleared
+function resender(timer, send, msg, addr, port) {
+  clearTimeout(timer)
+  send(msg, addr, port)
+  return setTimeout(() => {
+    send(msg, addr, port)
+  }, 2_000)
+
+}
+
+//hard side
+function BirthdayHard (remote, message) {
+  var [address, port] = remote.split(':')
+  var ports = {}
+  var first = true
+  var timer
+  return function (send) {
+    for(var i = 0; i < 256; i++) {
+      var p = random_port(ports)
+      console.log('bdhp-<:', address+":"+p, i)
+      send({type: 'hello', ts: Date.now(), msg: message}, {address, port}, p)
+    }
+
+    return function (msg, addr, port) {
+      if(first) {
+        first = false
+        console.log("successfully holepunched!", port+'->'+toAddress(addr))
+      }
+      console.log('received:', msg, 'from:'+toAddress(addr))
+      timer = resend(timer, send, {type: "echo", addr, msg: message, ts: Date.now(), count: (msg.count | 0) + 1}, addr, port)
+    }
+  }  
+}
+
+module.exports = {Server1, Server2, Server3, Client, BirthdayEasy, BirthdayHard}
+var dgram = require('dgram')
+
+function wrap (fn, ports, codec) {
+  var onMessage
+  var bound = {}
+  function bind(p) {
+    if(bound[p]) return bound[p]
+    return bound[p] = dgram
+      .createSocket('udp4')
+      .bind(p)
+      .on('message', (data, addr) => {
+        onMessage(codec.decode(data), addr, p)
+      })
+      .on('error', (err) => {
+        if(err.code === 'EACCES')
+          console.log("could not bind port:"+err.port)
+      })
+  }
+
+  ports.forEach(bind)
+  onMessage = fn(function (msg, addr, from) {
+    bind(from).send(codec.encode(msg), addr.port, addr.address)
+  })
+}
+
+function Timer(server1) {
+  var delay = 5_000, step = 10_000
+  var port = 0, ts = Date.now()
+  return function (send) {
+    function ping () {
+      send({type:"ping"}, {address: server1, port: PORT}, PORT)
+    }
+    ping()
+    return function (msg) {
+      console.log('port', port != msg.addr.port ? 'changed' : 'did not change', port, '->', msg.addr.port, 'after', (Date.now()-ts)/1_000, 'seconds')
+      ts = Date.now()
+      port = msg.addr.port
+      setTimeout(ping, delay+=step)
+
+    }
+  }
+}
+
+if(!module.parent) {
+  var defaults = ['3.25.141.150:3489','13.211.129.58:3489','3.26.157.68:3489']
+
+  var json = {
+    encode: (obj) => Buffer.from(JSON.stringify(obj)),
+    decode: (buf) => JSON.parse(buf.toString())
+  }
+
+  function run(fn) {
+    wrap(fn, [PORT], json)
+  }
+
+  var cmd = process.argv[2]
+  var options = process.argv.slice(3)
+  if(cmd === 'server1')      run(Server1())
+  else if(cmd === 'server2') run(Server2(options[0] || defaults[1]))
+  else if(cmd === 'server3') run(Server3())
+  else if(cmd === 'client'
+       || cmd == 'check')    run(Client(...(options.length ? options : defaults)))
+  else if(cmd === 'timer')   run(Timer(options[0] || defaults[0]))
+  else if(/$(db_.*)|(peer)/.test(cmd)) {
+    if(!options[0])
+      console.log('usage: nat-check '+cmd+' {remote ip:port} {message}')
+    else if(cmd === 'bd_easy') run(BirthdayEasy(options[0], options[1]))
+    else if(cmd === 'bd_hard') run(BirthdayHard(options[0], options[1]))
+    else if(cmd === 'peer')    run(Peer(options[0], options[1]))
+  }
+  else console.log('usage: nat-check check|server1|server2 <server3_ip>|server3|bd_easy|bd_hard|timer')
+}

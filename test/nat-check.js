@@ -2,7 +2,7 @@ var test = require('tape')
 
 
 var {Node, Network, IndependentNat, IndependentFirewallNat, DependentNat} = require('netsim')
-var nc = require('../nat-check')
+var nc = require('../')
 
 
 var A = 'aa.aa.aa.aa'
