@@ -1,45 +1,5 @@
 #! /bin/env node
 
-/*
-  an implementation of the NAT-check program described in the paper:
-
-"Peer-to-Peer Communication Across Network Address Translators" (Ford 2005)
-
-(see section 6 - 6.1.1)
-
-NAT Check tests NATs for reliable UDP behavior
-// /and TCP hole punching: consistent endpoint translation,
-// and silently dropping unsolicited incoming TCP SYNs
-
-NAT Check is a client program behind the NAT, 
-and 3 servers at different global IP addresses.
-
-To test the NAT’s behavior for UDP, the client sends pings to servers 1 and 2
-
-servers 1 & 2 each reply with the client’s public UDP
-ip and port.
-
-If the two servers report the same public endpoint for the client,
-Then the client is on an "easy nat",
-The NAT preserves the identy of the client's private endpoint,
-so holepunching should be easy.
-
-If the two responses return different ip addresses it's considered
-a "hard nat".
-
-Server 2 also forwards a message to server 3 which replies
-to the client. If the client receives this message,
-then the NAT does not filter "unsolicited" incoming traffic.
-
-If the client is able to receive the message from the 3rd server then it's got a statically open firewall
-and so can receive direct connections
-
-If the client has the same port in the responses from 1 and 2
-then it's easy nat. if it receives the message from 3 it's semistatic.
-if 1 and 2 have different ports it's a hard nat.
-
-*/
-
 var PORT = 3489
 
 function toAddress (addr) {
@@ -47,7 +7,6 @@ function toAddress (addr) {
 }
 
 function fromAddress (addr) {
-  if('object' === typeof addr) return addr
   var [address, port] = addr.split(':')
   return {address, port: port || 3489}
 }
@@ -64,7 +23,6 @@ function Server1 () {
 function Server2 (server3_addr) {
   if(!server3_addr)
     throw new Error('Server2 must be passed server3 ip')
-  //server3_addr = Address(server3_addr)
   return function (send) {
     return function (msg, addr, port) {
       send({type: 'bounce', addr}, fromAddress(server3_addr), port)
@@ -76,24 +34,22 @@ function Server2 (server3_addr) {
 function Server3 () {
   return function (send) {
     return function (msg, addr, port) {
-      console.log("SERVER3", msg)
       send({type: 'bounce', from: 's3'}, msg.addr, port)
     }
   }
 }
 
-function Client (server1, server2, server3, isCommand) {
+function Client (server1, server2, server3) {
   var s1, s2, s3, timer
   return function (send) {
     var start = Date.now()
     send({type:'ping'}, fromAddress(server1), PORT)
     send({type:'ping'}, fromAddress(server2), PORT)
-    if(isCommand)
-      setTimeout(function () {
-        if(!(s1||s2||s3))
-          console.log('received no replies! you may be offline')
-        process.exit(0)
-      }, 5_000)
+    setTimeout(function () {
+      if(!(s1||s2||s3))
+        console.log('received no replies! you may be offline')
+      process.exit(0)
+    }, 5_000)
 
     return function (msg, addr, port) {
       var s = toAddress(addr)
@@ -110,11 +66,8 @@ function Client (server1, server2, server3, isCommand) {
         console.log('server3 response in:',Date.now() - start)
       }
 
-      console.log("RECEIVE", msg)
-
-      //clearTimeout(timer)
-      //timer = setTimeout(() => {
-      var output = () => {
+      clearTimeout(timer)
+      timer = setTimeout(function () {
         if(s1 && s2 && !s3) {
           if(s1.addr.address != s2.addr.address) {
             console.log('different addresses! (should never happen)')
@@ -142,14 +95,7 @@ function Client (server1, server2, server3, isCommand) {
           console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
           this.nat = 'static'
         }
-      }
-      if(isCommand) {
-        clearTimeout(timer)
-        setTimeout(output, 300)
-      }
-      else
-        output()
-      //}, 300)
+      }, 300)
     }
   }
 }
