@@ -47,6 +47,7 @@ function toAddress (addr) {
 }
 
 function fromAddress (addr) {
+  if('object' === typeof addr) return addr
   var [address, port] = addr.split(':')
   return {address, port: port || 3489}
 }
@@ -63,6 +64,7 @@ function Server1 () {
 function Server2 (server3_addr) {
   if(!server3_addr)
     throw new Error('Server2 must be passed server3 ip')
+  //server3_addr = Address(server3_addr)
   return function (send) {
     return function (msg, addr, port) {
       send({type: 'bounce', addr}, fromAddress(server3_addr), port)
@@ -74,22 +76,24 @@ function Server2 (server3_addr) {
 function Server3 () {
   return function (send) {
     return function (msg, addr, port) {
+      console.log("SERVER3", msg)
       send({type: 'bounce', from: 's3'}, msg.addr, port)
     }
   }
 }
 
-function Client (server1, server2, server3) {
+function Client (server1, server2, server3, isCommand) {
   var s1, s2, s3, timer
   return function (send) {
     var start = Date.now()
     send({type:'ping'}, fromAddress(server1), PORT)
     send({type:'ping'}, fromAddress(server2), PORT)
-    setTimeout(function () {
-      if(!(s1||s2||s3))
-        console.log('received no replies! you may be offline')
-      process.exit(0)
-    }, 5_000)
+    if(isCommand)
+      setTimeout(function () {
+        if(!(s1||s2||s3))
+          console.log('received no replies! you may be offline')
+        process.exit(0)
+      }, 5_000)
 
     return function (msg, addr, port) {
       var s = toAddress(addr)
@@ -106,8 +110,11 @@ function Client (server1, server2, server3) {
         console.log('server3 response in:',Date.now() - start)
       }
 
-      clearTimeout(timer)
-      timer = setTimeout(function () {
+      console.log("RECEIVE", msg)
+
+      //clearTimeout(timer)
+      //timer = setTimeout(() => {
+      var output = () => {
         if(s1 && s2 && !s3) {
           if(s1.addr.address != s2.addr.address) {
             console.log('different addresses! (should never happen)')
@@ -135,7 +142,14 @@ function Client (server1, server2, server3) {
           console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
           this.nat = 'static'
         }
-      }, 300)
+      }
+      if(isCommand) {
+        clearTimeout(timer)
+        setTimeout(output, 300)
+      }
+      else
+        output()
+      //}, 300)
     }
   }
 }
