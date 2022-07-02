@@ -17,16 +17,15 @@ test('client is public server', function (t) {
   network.add(A, new Node(nc.Server1()))
   network.add(B, new Node(nc.Server2(C+P)))
   network.add(C, new Node(nc.Server3()))
-  network.add(D, client = new Node(nc.Client(A+P,B+P,C+P)))
+  network.add(D, client = new Node(nc.Client(A+P,B+P,C+P, true)))
   network.iterate(2)
-  console.log(JSON.stringify(network, null, 2))
+//  console.log(JSON.stringify(network, null, 2))
   network.iterate(-1)
   console.log(client)
   t.equal(client.nat, "static")
 
   t.end()
 })
-
 
 test('client behind independent nat', function (t) {
 
@@ -36,7 +35,7 @@ test('client behind independent nat', function (t) {
   network.add(B, new Node(nc.Server2(C+P)))
   network.add(C, new Node(nc.Server3()))
   network.add(D, nat)
-  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P)))
+  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P, true)))
   network.iterate(-1)
 
   console.log(client)
@@ -53,7 +52,7 @@ test('client behind independent firewall nat', function (t) {
   network.add(B, new Node(nc.Server2(C+P)))
   network.add(C, new Node(nc.Server3()))
   network.add(D, nat)
-  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P)))
+  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P, true)))
   network.iterate(-1)
 
   console.log(client)
@@ -69,7 +68,7 @@ test('client behind dependant nat', function (t) {
   network.add(B, new Node(nc.Server2(C+P)))
   network.add(C, new Node(nc.Server3()))
   network.add(D, nat)
-  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P)))
+  nat.add(d, client = new Node(nc.Client(A+P,B+P,C+P, true)))
   network.iterate(-1)
 
   console.log(client)
