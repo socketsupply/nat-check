@@ -11,6 +11,12 @@ an implementation of the NAT-check tool described in the paper:
 this module is not intended for actually building a p2p system, but just for testing connections
 and understanding how the p2p connection process works.
 
+## install
+
+```
+npm install @socketsupply/nat-check -g
+``
+
 ## summary
 
 NAT Check tests NATs for reliable UDP behavior
