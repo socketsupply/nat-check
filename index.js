@@ -39,17 +39,25 @@ function Server3 () {
   }
 }
 
-function Client (server1, server2, server3) {
-  var s1, s2, s3, timer
+function timer (delay, fn) {
+  if(delay)
+    return setTimeout(fn, delay)
+  else
+    fn()
+}
+
+function Client (server1, server2, server3, isTest=false) {
+  var s1, s2, s3, t
   return function (send) {
     var start = Date.now()
     send({type:'ping'}, fromAddress(server1), PORT)
     send({type:'ping'}, fromAddress(server2), PORT)
-    setTimeout(function () {
-      if(!(s1||s2||s3))
-        console.log('received no replies! you may be offline')
-      process.exit(0)
-    }, 5_000)
+    if(!isTest)
+      timer(5_000, function () {
+        if(!(s1||s2||s3))
+          console.log('received no replies! you may be offline')
+        process.exit(0)
+      })
 
     return function (msg, addr, port) {
       var s = toAddress(addr)
@@ -66,8 +74,10 @@ function Client (server1, server2, server3) {
         console.log('server3 response in:',Date.now() - start)
       }
 
-      clearTimeout(timer)
-      timer = setTimeout(function () {
+//      clearTimeout(timer)
+//      timer = setTimeout(function () {
+      clearTimeout(t)
+      t = timer(isTest ? 0 : 300, () => {
         if(s1 && s2 && !s3) {
           if(s1.addr.address != s2.addr.address) {
             console.log('different addresses! (should never happen)')
@@ -95,7 +105,8 @@ function Client (server1, server2, server3) {
           console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
           this.nat = 'static'
         }
-      }, 300)
+//      }, 300)
+      })
     }
   }
 }
