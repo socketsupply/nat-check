@@ -13,9 +13,9 @@ and understanding how the p2p connection process works.
 
 ## install
 
-```
+```sh
 npm install @socketsupply/nat-check -g
-``
+```
 
 ## summary
 
