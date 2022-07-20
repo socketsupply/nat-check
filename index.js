@@ -84,7 +84,8 @@ function Client (server1, server2, server3, isTest=false) {
             this.error = 'address mismatch'
           }
           if(s1.addr.port == s2.addr.port) {
-            console.log('easy nat', toAddress(s1.addr))
+            console.log('EASY nat', toAddress(s1.addr))
+            console.log('  pinged two servers, and the nat gave both connections the same port. you have an easy nat')
             this.nat = 'easy'
 
             console.log('\nto connect to this peer:\n')
@@ -92,7 +93,9 @@ function Client (server1, server2, server3, isTest=false) {
             console.log('> nat-check db_hard '+toAddress(s1.addr)+' # from a hard nat peer')
           }
           else {
-            console.log('hard nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
+            console.log('HARD nat', s1.addr.address+':{'+s1.addr.port+','+s2.addr.port+'}')
+            console.log('  pinged two servers, and the nat gave each connection a different port. you have a hard nat')
+
             this.nat = 'hard'
             console.log('\n  to connect to this peer:\n')
             console.log('> nat-check db_easy '+toAddress(s1.addr)+' # from another easy nat peer')
@@ -101,6 +104,8 @@ function Client (server1, server2, server3, isTest=false) {
         }
         else if(s3) {
           console.log('you have a *static address* that any peer can connect to directly!')
+          console.log('you where able to receive a direct unsolicited connection from a 3rd server')
+
           console.log('\n  to connect to this peer:\n')
           console.log('> nat-check peer '+toAddress(s1.addr)+' # from any other peer')
           this.nat = 'static'
